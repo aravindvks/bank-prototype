@@ -3,6 +3,16 @@ server:
 spring:
   application:
     name: vendor-simulator
+sim:
+  # Shared secret for signing webhooks; the adapters verify with the same value.
+  webhook-secret: ${WEBHOOK_SECRET:local-dev-secret}
+  essence:
+    webhook-url: ${SIM_ESSENCE_WEBHOOK_URL:http://localhost:8084/hooks/finastra}
+  atfinity:
+    webhook-url: ${SIM_ATFINITY_WEBHOOK_URL:http://localhost:8086/hooks/atfinity}
+    decision-delay-ms: ${SIM_ATFINITY_DELAY_MS:3000}
+  thredd:
+    ehi-url: ${SIM_THREDD_EHI_URL:http://localhost:8083/ehi/v1/messages}
 management:
   endpoints:
     web:

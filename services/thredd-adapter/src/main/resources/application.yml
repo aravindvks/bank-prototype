@@ -3,11 +3,20 @@ server:
 spring:
   application:
     name: thredd-adapter
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
 pbp:
   correlation:
     default-type: CRD
 vendor:
   thredd:
+    # simulator or sandbox; the sandbox connector is filled in when the Thredd API spec arrives.
     mode: ${THREDD_MODE:simulator}
     base-url: ${THREDD_BASE_URL:http://localhost:8090/thredd/v1}
     timeout-ms: 10000

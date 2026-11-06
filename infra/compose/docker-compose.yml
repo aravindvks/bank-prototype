@@ -83,6 +83,10 @@ services:
       context: ../..
       dockerfile: infra/compose/Dockerfile
       args: { MODULE: simulators/vendor-simulator, JAR: vendor-simulator.jar }
+    environment:
+      SIM_ESSENCE_WEBHOOK_URL: http://essence-adapter:8084/hooks/finastra
+      SIM_ATFINITY_WEBHOOK_URL: http://atfinity-adapter:8086/hooks/atfinity
+      SIM_THREDD_EHI_URL: http://ehi-responder:8083/ehi/v1/messages
     ports: ["8090:8090"]
 
   mapping-service:
@@ -110,7 +114,9 @@ services:
       <<: *app-build
       args: { MODULE: services/essence-adapter, JAR: essence-adapter.jar }
     environment: *app-env
-    depends_on: [vendor-simulator]
+    depends_on:
+      vendor-simulator: { condition: service_started }
+      kafka-topics: { condition: service_completed_successfully }
     ports: ["8084:8084"]
 
   thredd-adapter:
@@ -119,7 +125,9 @@ services:
       <<: *app-build
       args: { MODULE: services/thredd-adapter, JAR: thredd-adapter.jar }
     environment: *app-env
-    depends_on: [vendor-simulator]
+    depends_on:
+      vendor-simulator: { condition: service_started }
+      kafka-topics: { condition: service_completed_successfully }
     ports: ["8085:8085"]
 
   atfinity-adapter:
@@ -128,7 +136,9 @@ services:
       <<: *app-build
       args: { MODULE: services/atfinity-adapter, JAR: atfinity-adapter.jar }
     environment: *app-env
-    depends_on: [vendor-simulator]
+    depends_on:
+      vendor-simulator: { condition: service_started }
+      kafka-topics: { condition: service_completed_successfully }
     ports: ["8086:8086"]
 
   bff:

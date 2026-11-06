@@ -3,18 +3,29 @@ server:
 spring:
   application:
     name: essence-adapter
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
 pbp:
   correlation:
     default-type: TXN
 vendor:
   essence:
-    # sandbox or simulator (LLD section 13). Phase 0 supports simulator only.
+    # simulator or sandbox (LLD section 13). The sandbox connector is filled in when the Essence API spec arrives.
     mode: ${ESSENCE_MODE:simulator}
     base-url: ${ESSENCE_BASE_URL:http://localhost:8090/essence/v1}
     timeout:
       connect-ms: 1000
       ehi-ms: 2000
       standard-ms: 10000
+webhook:
+  secret: ${WEBHOOK_SECRET:local-dev-secret}
+  replay-window-seconds: 300
 management:
   endpoints:
     web:

@@ -3,14 +3,26 @@ server:
 spring:
   application:
     name: atfinity-adapter
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
 pbp:
   correlation:
     default-type: ONB
 vendor:
   atfinity:
+    # simulator or sandbox; the sandbox connector is filled in when the Atfinity API spec arrives.
     mode: ${ATFINITY_MODE:simulator}
     base-url: ${ATFINITY_BASE_URL:http://localhost:8090/atfinity/v1}
     timeout-ms: 10000
+webhook:
+  secret: ${WEBHOOK_SECRET:local-dev-secret}
+  replay-window-seconds: 300
 management:
   endpoints:
     web:
