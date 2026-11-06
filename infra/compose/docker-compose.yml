@@ -6,6 +6,8 @@ name: pbp
 services:
   postgres:
     image: postgres:16-alpine
+    # Logical decoding for Debezium (outbox relay).
+    command: ["postgres", "-c", "wal_level=logical"]
     environment:
       POSTGRES_DB: pbp
       POSTGRES_USER: pbp
@@ -51,6 +53,32 @@ services:
     entrypoint: ["/bin/bash", "/create-topics.sh"]
     environment:
       BOOTSTRAP: kafka:29092
+
+  # Kafka Connect with Debezium: relays every service's outbox table to its Kafka topic.
+  connect:
+    image: quay.io/debezium/connect:2.7.3.Final
+    depends_on:
+      kafka: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    environment:
+      BOOTSTRAP_SERVERS: kafka:29092
+      GROUP_ID: pbp-connect
+      CONFIG_STORAGE_TOPIC: connect_configs
+      OFFSET_STORAGE_TOPIC: connect_offsets
+      STATUS_STORAGE_TOPIC: connect_statuses
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+    ports: ["8088:8083"]
+
+  outbox-connector:
+    image: quay.io/debezium/connect:2.7.3.Final
+    depends_on:
+      connect: { condition: service_started }
+      kafka-topics: { condition: service_completed_successfully }
+    volumes:
+      - ./register-outbox-connector.sh:/register.sh:ro
+    entrypoint: ["/bin/bash", "/register.sh"]
 
   redis:
     image: redis:7.4-alpine
@@ -107,11 +135,13 @@ services:
       THREDD_ADAPTER_URL: http://thredd-adapter:8085
       ORCHESTRATOR_URL: http://orchestrator:8081
       REDIS_HOST: redis
+      EVENTS_MODE: outbox
       EHI_URL: http://ehi-responder:8083
       RECON_URL: http://recon-service:8087
     depends_on: &app-deps
       postgres: { condition: service_healthy }
       kafka-topics: { condition: service_completed_successfully }
+      outbox-connector: { condition: service_completed_successfully }
     ports: ["8082:8082"]
 
   essence-adapter:
@@ -165,6 +195,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       kafka-topics: { condition: service_completed_successfully }
+      outbox-connector: { condition: service_completed_successfully }
       temporal: { condition: service_started }
     restart: on-failure
     ports: ["8081:8081"]

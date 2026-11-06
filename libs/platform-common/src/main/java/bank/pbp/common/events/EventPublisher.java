@@ -16,8 +16,14 @@ import org.springframework.kafka.core.KafkaTemplate;
  * Publishes an {@link EventEnvelope} keyed by customer ID, repeating correlationId and type
  * as Kafka headers so consumers can route and trace without parsing the body.
  *
- * <p>Phase 0 publishes directly and waits for the broker acknowledgement. The transactional
- * outbox relayed by Debezium (LLD section 9) replaces this in Phase 1; callers do not change.
+ * <p>Two modes ({@code pbp.events.mode}):
+ * <ul>
+ *   <li>{@code outbox}: the event is written to the service's own {@code outbox} table in the caller's
+ *       transaction and Debezium relays it to Kafka (LLD section 9). The data change and the event
+ *       commit or roll back together.</li>
+ *   <li>{@code direct}: published to Kafka at once (services without a database, and IDE runs
+ *       without Debezium).</li>
+ * </ul>
  */
 public class EventPublisher {
 
@@ -25,10 +31,16 @@ public class EventPublisher {
 
     private final KafkaTemplate<String, String> kafka;
     private final ObjectMapper mapper;
+    private final OutboxWriter outbox;
 
     public EventPublisher(KafkaTemplate<String, String> kafka, ObjectMapper mapper) {
+        this(kafka, mapper, null);
+    }
+
+    public EventPublisher(KafkaTemplate<String, String> kafka, ObjectMapper mapper, OutboxWriter outbox) {
         this.kafka = kafka;
         this.mapper = mapper;
+        this.outbox = outbox;
     }
 
     public void publish(String topic, EventEnvelope event) {
@@ -37,6 +49,11 @@ public class EventPublisher {
             json = mapper.writeValueAsString(event);
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException("Event cannot be serialised: " + event.type(), e);
+        }
+        if (outbox != null) {
+            outbox.write(topic, event, json);
+            log.info("event.outboxed topic={} type={} eventId={}", topic, event.type(), event.eventId());
+            return;
         }
         ProducerRecord<String, String> record = new ProducerRecord<>(topic, event.customerId(), json);
         if (event.correlationId() != null) {

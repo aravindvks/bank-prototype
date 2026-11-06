@@ -14,7 +14,7 @@ public class CorrelationRecordInterceptor implements RecordInterceptor<Object, O
     public ConsumerRecord<Object, Object> intercept(ConsumerRecord<Object, Object> record,
                                                     Consumer<Object, Object> consumer) {
         Header header = record.headers().lastHeader(Correlation.KAFKA_HEADER);
-        Correlation.set(header == null ? null : new String(header.value(), StandardCharsets.UTF_8));
+        Correlation.set(header == null || header.value() == null ? null : new String(header.value(), StandardCharsets.UTF_8));
         return record;
     }
 

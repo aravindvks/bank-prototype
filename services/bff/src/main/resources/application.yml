@@ -23,6 +23,9 @@ spring:
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 pbp:
+  events:
+    # outbox: Debezium relays events from the outbox table (Docker Compose, OCI); direct: straight to Kafka.
+    mode: ${EVENTS_MODE:direct}
   correlation:
     default-type: TXN
   bank:

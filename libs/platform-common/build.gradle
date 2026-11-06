@@ -9,6 +9,7 @@ dependencies {
     // Optional: each service brings these itself when it needs them.
     compileOnly 'org.springframework.boot:spring-boot-starter-web'
     compileOnly 'org.springframework.kafka:spring-kafka'
+    compileOnly 'org.springframework.boot:spring-boot-starter-jdbc'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }

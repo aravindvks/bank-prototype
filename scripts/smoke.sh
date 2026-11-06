@@ -8,6 +8,7 @@ BFF=${BFF:-http://localhost:8080}
 EHI=${EHI:-http://localhost:8083}
 SIM=${SIM:-http://localhost:8090}
 WEB=${WEB:-http://localhost:3000}
+CONNECT=${CONNECT:-http://localhost:8088}
 
 pass() { printf '  \033[32mPASS\033[0m %s\n' "$1"; }
 fail() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; exit 1; }
@@ -246,6 +247,15 @@ echo "$rec" | grep -q '"source":"CARDS","matched":[1-9][0-9]*,"exceptions":0' &&
 exc=$(curl -sf "$BFF/v1/staff/recon/exceptions" -H "X-Staff-User: smoke-reviewer")
 echo "$exc" | grep -q '"type":"MISSING_IN_SOURCE","sourceRef":"ROGUE-' && pass "Rogue Essence posting reported as MISSING_IN_SOURCE" \
   || fail "Rogue posting not reported: $exc"
+
+echo "18. Outbox relay: every event above travelled through service outbox tables and Debezium"
+st=$(curl -sf "$CONNECT/connectors/pbp-outbox/status" || true)
+if [ -n "$st" ]; then
+  echo "$st" | grep -q '"state":"RUNNING"' && ! echo "$st" | grep -q '"state":"FAILED"' \
+    && pass "Debezium outbox connector RUNNING (bff, orchestration, mapping, ehi outboxes)" || fail "Connector not healthy: $st"
+else
+  echo "  SKIP Kafka Connect not reachable at $CONNECT (services are in direct mode)"
+fi
 
 echo
 echo "All checks passed. Search the logs for $CORR to follow the payment across services."

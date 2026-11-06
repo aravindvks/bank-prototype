@@ -5,6 +5,7 @@ import bank.pbp.common.correlation.CorrelationIdFilter;
 import bank.pbp.common.error.ProblemAdvice;
 import bank.pbp.common.events.CorrelationRecordInterceptor;
 import bank.pbp.common.events.EventPublisher;
+import bank.pbp.common.events.OutboxWriter;
 import bank.pbp.common.ids.JourneyType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,7 +26,8 @@ import org.springframework.kafka.listener.RecordInterceptor;
  * Shared platform wiring every service gets by depending on platform-common:
  * correlation IDs in, out and through Kafka, and the problem+json error envelope.
  */
-@AutoConfiguration(afterName = "org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration")
+@AutoConfiguration(afterName = {"org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration",
+        "org.springframework.boot.autoconfigure.jdbc.JdbcTemplateAutoConfiguration"})
 public class PlatformAutoConfiguration {
 
     @Configuration(proxyBeanMethods = false)
@@ -54,6 +56,20 @@ public class PlatformAutoConfiguration {
         }
     }
 
+    /** Outbox mode (pbp.events.mode=outbox): events go to the service's outbox table for Debezium. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "org.springframework.jdbc.core.JdbcTemplate")
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name = "pbp.events.mode", havingValue = "outbox")
+    static class OutboxWiring {
+
+        @Bean
+        @ConditionalOnMissingBean
+        @ConditionalOnBean(type = "org.springframework.jdbc.core.JdbcTemplate")
+        OutboxWriter outboxWriter(org.springframework.jdbc.core.JdbcTemplate jdbc) {
+            return new OutboxWriter(jdbc);
+        }
+    }
+
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = "org.springframework.kafka.core.KafkaTemplate")
     static class KafkaWiring {
@@ -67,8 +83,9 @@ public class PlatformAutoConfiguration {
         @Bean
         @ConditionalOnMissingBean
         @ConditionalOnBean(KafkaTemplate.class)
-        EventPublisher eventPublisher(KafkaTemplate<String, String> kafkaTemplate, ObjectMapper mapper) {
-            return new EventPublisher(kafkaTemplate, mapper);
+        EventPublisher eventPublisher(KafkaTemplate<String, String> kafkaTemplate, ObjectMapper mapper,
+                                      org.springframework.beans.factory.ObjectProvider<OutboxWriter> outbox) {
+            return new EventPublisher(kafkaTemplate, mapper, outbox.getIfAvailable());
         }
     }
 }
