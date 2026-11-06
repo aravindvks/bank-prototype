@@ -7,6 +7,7 @@ MAPPING=${MAPPING:-http://localhost:8082}
 BFF=${BFF:-http://localhost:8080}
 EHI=${EHI:-http://localhost:8083}
 SIM=${SIM:-http://localhost:8090}
+WEB=${WEB:-http://localhost:3000}
 
 pass() { printf '  \033[32mPASS\033[0m %s\n' "$1"; }
 fail() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; exit 1; }
@@ -172,6 +173,12 @@ for _ in $(seq 1 15); do
   sleep 1
 done
 echo "$list" | grep -q '"status":"FLAGGED"' && pass "£5 to frozen Asha recorded as FLAGGED for review" || fail "Expected a FLAGGED inbound payment: $list"
+
+echo "13. Web app: served by nginx, talking to the BFF"
+curl -sf "$WEB/" | grep -q "Banking Platform Prototype" && pass "Web app is up at $WEB" || fail "Web app not served at $WEB"
+me=$(curl -sf "$WEB/v1/me" -H "X-Customer-Id: $CUSTOMER")
+echo "$me" | grep -q '"accountId":"ACC-5501"' && pass "Home screen data through the web app: $(echo "$me" | head -c 160)…" \
+  || fail "Unexpected /v1/me through the web app: $me"
 
 echo
 echo "All checks passed. Search the logs for $CORR to follow the payment across services."

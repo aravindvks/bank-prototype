@@ -186,5 +186,13 @@ services:
       postgres: { condition: service_healthy }
     ports: ["8087:8087"]
 
+  # Customer web app (React). nginx serves it and routes /v1 to the BFF and /sim to the simulator.
+  web:
+    profiles: ["apps"]
+    build:
+      context: ../../web
+    depends_on: [bff, vendor-simulator]
+    ports: ["3000:80"]
+
 volumes:
   pgdata:
