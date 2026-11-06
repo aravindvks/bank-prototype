@@ -11,6 +11,11 @@ spring:
     schemas: mapping
     default-schema: mapping
     create-schemas: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: 6379
+      timeout: 200ms
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
     producer:
@@ -19,6 +24,10 @@ spring:
       acks: all
       properties:
         enable.idempotence: true
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
 pbp:
   correlation:
     default-type: CUS

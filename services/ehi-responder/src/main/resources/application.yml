@@ -11,6 +11,11 @@ spring:
     schemas: ehi
     default-schema: ehi
     create-schemas: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: 6379
+      timeout: 200ms
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
     producer:

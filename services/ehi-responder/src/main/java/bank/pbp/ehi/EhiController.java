@@ -20,6 +20,6 @@ public class EhiController {
 
     @PostMapping("/ehi/v1/messages")
     public AuthorisationService.Decision handle(@Valid @RequestBody EhiMessage message) {
-        return authorisations.authorise(message);
+        return authorisations.handle(message);
     }
 }

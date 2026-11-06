@@ -103,5 +103,37 @@ tap=$(curl -sf -X POST "$SIM/thredd/v1/sim/card-tap" -H 'Content-Type: applicati
   -d "{\"token\":\"$ASHA_TOKEN\",\"amount\":\"3.50\",\"merchant\":\"Bean There Cafe\"}")
 echo "$tap" | grep -q '"decision":"APPROVE"' && pass "Card tap approved: $tap" || fail "Expected APPROVE, got $tap"
 
+echo "7. Card settlement: the cafe settles the £3.50 tap (presentment captures the Essence hold)"
+TAP_MSG=$(echo "$tap" | field messageId)
+before=$(curl -sf "$SIM/essence/v1/accounts/$ASHA_ACC/balance")
+echo "$before" | grep -q '"available":"96.50"' && echo "$before" | grep -q '"ledger":"100.00"' \
+  && pass "Hold in place: available £96.50, ledger £100.00" || fail "Expected a £3.50 hold, got $before"
+ack=$(curl -sf -X POST "$SIM/thredd/v1/sim/settle" -H 'Content-Type: application/json' \
+  -d "{\"token\":\"$ASHA_TOKEN\",\"messageId\":\"$TAP_MSG\",\"amount\":\"3.50\"}")
+after=$(curl -sf "$SIM/essence/v1/accounts/$ASHA_ACC/balance")
+echo "$after" | grep -q '"ledger":"96.50"' && pass "Settled: $after" || fail "Expected ledger 96.50 after settlement, got $after ($ack)"
+
+echo "8. Declines with reasons: not enough money, and the daily card limit"
+tap=$(curl -sf -X POST "$SIM/thredd/v1/sim/card-tap" -H 'Content-Type: application/json' \
+  -d "{\"token\":\"$ASHA_TOKEN\",\"amount\":\"200.00\",\"merchant\":\"Volt Electronics\"}")
+echo "$tap" | grep -q '"reason":"INSUFFICIENT_FUNDS"' && pass "£200 declined: INSUFFICIENT_FUNDS" || fail "Expected INSUFFICIENT_FUNDS, got $tap"
+tap=$(curl -sf -X POST "$SIM/thredd/v1/sim/card-tap" -H 'Content-Type: application/json' \
+  -d "{\"token\":\"$TOKEN\",\"amount\":\"350.00\",\"merchant\":\"Volt Electronics\"}")
+echo "$tap" | grep -q '"reason":"LIMIT_EXCEEDED"' && pass "Priya's £350 declined: LIMIT_EXCEEDED (daily limit £300)" \
+  || fail "Expected LIMIT_EXCEEDED, got $tap"
+
+echo "9. Sanctions hit: Atfinity rescreening freezes Asha and her next tap is declined"
+CASE=$(curl -sf "$MAPPING/v1/customers/$ASHA/graph" | grep -o '"entityType":"KYC_CASE","externalId":"[^"]*"' | sed 's/.*"externalId":"\([^"]*\)"/\1/')
+curl -sf -X POST "$SIM/atfinity/v1/sim/cases/$CASE/rescreen-hit" >/dev/null
+for _ in $(seq 1 15); do
+  tap=$(curl -sf -X POST "$SIM/thredd/v1/sim/card-tap" -H 'Content-Type: application/json' \
+    -d "{\"token\":\"$ASHA_TOKEN\",\"amount\":\"1.00\",\"merchant\":\"Corner Shop\"}")
+  echo "$tap" | grep -q '"reason":"CUSTOMER_FROZEN"' && break
+  sleep 2
+done
+echo "$tap" | grep -q '"reason":"CUSTOMER_FROZEN"' && pass "Declined: CUSTOMER_FROZEN" || fail "Expected CUSTOMER_FROZEN, got $tap"
+status=$(curl -sf "$MAPPING/v1/customers/$ASHA" | field status)
+[ "$status" = "FROZEN" ] && pass "Asha's customer status is FROZEN" || fail "Expected FROZEN, got $status"
+
 echo
 echo "All checks passed. Search the logs for $CORR to follow the payment across services."

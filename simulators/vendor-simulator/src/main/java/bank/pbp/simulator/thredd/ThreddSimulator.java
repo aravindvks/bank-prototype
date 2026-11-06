@@ -70,6 +70,29 @@ public class ThreddSimulator {
      * Demo and test control: a purchase at a merchant. Sends an EHI authorisation to the bank and
      * returns the bank's decision, as the card network would see it.
      */
+    /**
+     * Demo and test control: the merchant settles an earlier purchase. Sends an EHI presentment
+     * (or a reversal with {@code "reverse": true}) for the authorisation's message ID.
+     */
+    @PostMapping("/sim/settle")
+    public ResponseEntity<Map<String, Object>> settle(@RequestBody Map<String, Object> req) {
+        boolean reverse = Boolean.parseBoolean(String.valueOf(req.getOrDefault("reverse", "false")));
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("messageId", "EHI-" + UUID.randomUUID());
+        message.put("messageType", reverse ? "REVERSAL" : "PRESENTMENT");
+        message.put("cardToken", String.valueOf(req.get("token")));
+        message.put("amount", String.valueOf(req.get("amount")));
+        message.put("currency", "GBP");
+        message.put("originalMessageId", String.valueOf(req.get("messageId")));
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> ack = ehi.post().uri(ehiUrl).body(message).retrieve().body(Map.class);
+            return ResponseEntity.ok(ack);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of("error", e.toString()));
+        }
+    }
+
     @PostMapping("/sim/card-tap")
     public ResponseEntity<Map<String, Object>> cardTap(@RequestBody Map<String, Object> tap) {
         Map<String, Object> merchant = new LinkedHashMap<>();

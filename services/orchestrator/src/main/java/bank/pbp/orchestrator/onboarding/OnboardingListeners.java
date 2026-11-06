@@ -4,6 +4,7 @@ import bank.pbp.common.error.PbpException;
 import bank.pbp.common.events.EventEnvelope;
 import bank.pbp.common.events.EventPublisher;
 import bank.pbp.common.events.Topics;
+import bank.pbp.orchestrator.compliance.ComplianceWorkflow;
 import bank.pbp.orchestrator.onboarding.OnboardingTypes.OnboardingCommand;
 import bank.pbp.orchestrator.onboarding.OnboardingTypes.OnboardingStatus;
 import bank.pbp.orchestrator.temporal.TaskQueues;
@@ -64,6 +65,10 @@ public class OnboardingListeners {
     @KafkaListener(topics = Topics.KYC_EVENTS, groupId = "orchestrator-kyc")
     public void onKyc(String message) {
         EventEnvelope e = events.read(message);
+        if ("kyc.rescreen.hit".equals(e.type())) {
+            startFreeze(e);
+            return;
+        }
         String outcome = switch (e.type()) {
             case "kyc.approved" -> "approved";
             case "kyc.referred" -> "referred";
@@ -89,6 +94,23 @@ public class OnboardingListeners {
         temporal.newWorkflowStub(OnboardingWorkflow.class, "onboarding-" + sagaId.get())
                 .kycOutcome(outcome, str(e.data().get("riskRating")));
         log.info("kyc.signalled workflowId=onboarding-{} outcome={}", sagaId.get(), outcome);
+    }
+
+    /** Sanctions or PEP rescreening hit: freeze the customer and block cards (compliance saga). */
+    private void startFreeze(EventEnvelope e) {
+        String customerId = str(e.data().get("customerId"));
+        String correlationId = e.correlationId() != null ? e.correlationId()
+                : bank.pbp.common.ids.Ids.newCorrelationId(bank.pbp.common.ids.JourneyType.CUS);
+        ComplianceWorkflow wf = temporal.newWorkflowStub(ComplianceWorkflow.class, WorkflowOptions.newBuilder()
+                .setTaskQueue(TaskQueues.COMPLIANCE)
+                .setWorkflowId("compliance-" + str(e.data().get("vendorEventId")))
+                .build());
+        try {
+            WorkflowClient.start(wf::freeze, customerId, correlationId, "Atfinity rescreening hit");
+            log.info("workflow.started workflowId=compliance-{} customerId={}", e.data().get("vendorEventId"), customerId);
+        } catch (WorkflowExecutionAlreadyStarted duplicate) {
+            log.info("workflow.duplicate workflowId=compliance-{}", e.data().get("vendorEventId"));
+        }
     }
 
     @GetMapping("/v1/onboarding/{onboardingId}")

@@ -106,6 +106,7 @@ services:
       ATFINITY_ADAPTER_URL: http://atfinity-adapter:8086
       THREDD_ADAPTER_URL: http://thredd-adapter:8085
       ORCHESTRATOR_URL: http://orchestrator:8081
+      REDIS_HOST: redis
     depends_on: &app-deps
       postgres: { condition: service_healthy }
       kafka-topics: { condition: service_completed_successfully }
