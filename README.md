@@ -20,6 +20,10 @@ The design is in the HLD and LLD documents ("Banking Platform Prototype – High
 | 3 | OCI Terraform (OKE, API Gateway, EHI listener, PostgreSQL, Streaming, Vault) and pipelines | |
 | 4 | Switch each adapter from simulator to vendor sandbox as credentials arrive | |
 
+## Continuous integration
+
+Every push runs two GitHub Actions jobs: **build** (compile and unit tests, including the Temporal payment workflow on Temporal's test server) and **e2e** (starts the whole stack in Docker and runs `scripts/smoke.sh`). Failures are reported as annotations on the commit.
+
 ## Run it
 
 Prerequisites: JDK 21 (or any JDK; Gradle downloads 21), Docker Desktop with Compose v2, `make`.
