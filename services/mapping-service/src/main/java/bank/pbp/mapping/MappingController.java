@@ -56,8 +56,14 @@ public class MappingController {
     public ResponseEntity<ExternalRef> link(@PathVariable UUID id, @Valid @RequestBody LinkRef body,
                                             @RequestHeader(value = "X-Actor", defaultValue = "svc:unknown") String actor) {
         LinkResult result = service.linkRef(id, body.system(), body.entityType(), body.externalId(),
-                body.parentRefId(), body.status(), actor);
+                body.parentRefId(), body.status(), body.metadata(), actor);
         return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK).body(result.ref());
+    }
+
+    @PatchMapping("/customers/{id}/kyc")
+    public Customer kyc(@PathVariable UUID id, @Valid @RequestBody KycUpdate body,
+                        @RequestHeader(value = "X-Actor", defaultValue = "svc:unknown") String actor) {
+        return service.updateKyc(id, body.kycStatus(), body.validUntil(), body.riskRating(), actor);
     }
 
     @GetMapping("/resolve")
@@ -73,6 +79,9 @@ public class MappingController {
     }
 
     public record LinkRef(@NotBlank String system, @NotBlank String entityType, @NotBlank String externalId,
-                          UUID parentRefId, String status) {
+                          UUID parentRefId, String status, Map<String, Object> metadata) {
+    }
+
+    public record KycUpdate(@NotBlank String kycStatus, java.time.LocalDate validUntil, String riskRating) {
     }
 }

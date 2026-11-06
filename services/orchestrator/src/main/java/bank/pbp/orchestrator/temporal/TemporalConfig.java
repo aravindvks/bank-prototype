@@ -1,5 +1,7 @@
 package bank.pbp.orchestrator.temporal;
 
+import bank.pbp.orchestrator.onboarding.OnboardingActivitiesImpl;
+import bank.pbp.orchestrator.onboarding.OnboardingWorkflowImpl;
 import bank.pbp.orchestrator.payments.PaymentActivitiesImpl;
 import bank.pbp.orchestrator.payments.PaymentWorkflowImpl;
 import io.temporal.client.WorkflowClient;
@@ -37,8 +39,9 @@ public class TemporalConfig {
     }
 
     @Bean
-    TemporalWorkers temporalWorkers(WorkerFactory factory, PaymentActivitiesImpl paymentActivities) {
-        return new TemporalWorkers(factory, paymentActivities);
+    TemporalWorkers temporalWorkers(WorkerFactory factory, PaymentActivitiesImpl paymentActivities,
+                                    OnboardingActivitiesImpl onboardingActivities) {
+        return new TemporalWorkers(factory, paymentActivities, onboardingActivities);
     }
 
     /** Starts polling after the context is ready and stops cleanly on shutdown. */
@@ -48,11 +51,14 @@ public class TemporalConfig {
 
         private final WorkerFactory factory;
         private final PaymentActivitiesImpl paymentActivities;
+        private final OnboardingActivitiesImpl onboardingActivities;
         private volatile boolean running;
 
-        TemporalWorkers(WorkerFactory factory, PaymentActivitiesImpl paymentActivities) {
+        TemporalWorkers(WorkerFactory factory, PaymentActivitiesImpl paymentActivities,
+                        OnboardingActivitiesImpl onboardingActivities) {
             this.factory = factory;
             this.paymentActivities = paymentActivities;
+            this.onboardingActivities = onboardingActivities;
         }
 
         @Override
@@ -60,9 +66,12 @@ public class TemporalConfig {
             Worker payments = factory.newWorker(TaskQueues.PAYMENTS);
             payments.registerWorkflowImplementationTypes(PaymentWorkflowImpl.class);
             payments.registerActivitiesImplementations(paymentActivities);
+            Worker onboarding = factory.newWorker(TaskQueues.ONBOARDING);
+            onboarding.registerWorkflowImplementationTypes(OnboardingWorkflowImpl.class);
+            onboarding.registerActivitiesImplementations(onboardingActivities);
             factory.start();
             running = true;
-            log.info("temporal.workers.started queues=[{}]", TaskQueues.PAYMENTS);
+            log.info("temporal.workers.started queues=[{}, {}]", TaskQueues.PAYMENTS, TaskQueues.ONBOARDING);
         }
 
         @Override

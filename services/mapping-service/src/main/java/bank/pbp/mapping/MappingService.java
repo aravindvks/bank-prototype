@@ -93,7 +93,7 @@ public class MappingService {
     /** Idempotent on (system, entityType, externalId): same customer returns the existing link. */
     @Transactional
     public LinkResult linkRef(UUID customerId, String system, String entityType, String externalId,
-                              UUID parentRefId, String status, String actor) {
+                              UUID parentRefId, String status, Map<String, Object> metadata, String actor) {
         getCustomer(customerId);
         if (!SYSTEMS.contains(system) || !ENTITY_TYPES.contains(entityType)) {
             throw new PbpException("GEN-VALID-001", 400, "Request is not valid",
@@ -110,7 +110,8 @@ public class MappingService {
         checkParent(customerId, entityType, parentRefId);
 
         ExternalRef ref = new ExternalRef(Ids.uuidV7(), customerId, system, entityType, externalId, parentRefId,
-                status == null ? "ACTIVE" : status, null, null, null, correlationId());
+                status == null ? "ACTIVE" : status, null, null, null, correlationId(),
+                metadata == null ? null : json(metadata));
         repo.insertRef(ref);
         ExternalRef saved = repo.findRef(ref.refId()).orElseThrow();
         repo.audit(customerId, saved.refId(), "REF_LINKED", null, json(saved), actor, correlationId());
@@ -123,6 +124,22 @@ public class MappingService {
         data.put("parentRef", parentRefId == null ? null : parentRefId.toString());
         publish("ref.linked", customerId, data);
         return new LinkResult(saved, true);
+    }
+
+    @Transactional
+    public Customer updateKyc(UUID id, String kycStatus, java.time.LocalDate validUntil, String riskRating,
+                              String actor) {
+        Customer before = getCustomer(id);
+        repo.updateKyc(id, kycStatus, validUntil, riskRating);
+        Customer after = getCustomer(id);
+        repo.audit(id, null, "KYC_UPDATED", json(before), json(after), actor, correlationId());
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("customerId", id.toString());
+        data.put("kycStatus", kycStatus);
+        data.put("validUntil", validUntil == null ? null : validUntil.toString());
+        data.put("riskRating", riskRating);
+        publish("customer.kyc_updated", id, data);
+        return after;
     }
 
     public Map<String, Object> resolve(String system, String entityType, String externalId) {

@@ -13,7 +13,7 @@ public class MappingRepository {
 
     private static final String REF_COLUMNS = """
             ref_id, customer_id, system, entity_type, external_id, parent_ref_id, status,
-            valid_from, valid_to, replaced_by, created_correlation_id""";
+            valid_from, valid_to, replaced_by, created_correlation_id, metadata::text AS metadata""";
 
     private final JdbcClient jdbc;
 
@@ -49,9 +49,9 @@ public class MappingRepository {
     public void insertRef(ExternalRef ref) {
         jdbc.sql("""
                         INSERT INTO external_ref (ref_id, customer_id, system, entity_type, external_id,
-                                                  parent_ref_id, status, created_correlation_id)
+                                                  parent_ref_id, status, created_correlation_id, metadata)
                         VALUES (:refId, :customerId, :system, :entityType, :externalId, :parentRefId, :status,
-                                :correlationId)""")
+                                :correlationId, CAST(:metadata AS jsonb))""")
                 .param("refId", ref.refId())
                 .param("customerId", ref.customerId())
                 .param("system", ref.system())
@@ -60,6 +60,16 @@ public class MappingRepository {
                 .param("parentRefId", ref.parentRefId())
                 .param("status", ref.status())
                 .param("correlationId", ref.createdCorrelationId())
+                .param("metadata", ref.metadata())
+                .update();
+    }
+
+    public int updateKyc(UUID id, String kycStatus, java.time.LocalDate validUntil, String riskRating) {
+        return jdbc.sql("""
+                        UPDATE customer SET kyc_status = :kyc, kyc_valid_until = :until, risk_rating = :risk,
+                               version = version + 1
+                        WHERE customer_id = :id""")
+                .param("kyc", kycStatus).param("until", validUntil).param("risk", riskRating).param("id", id)
                 .update();
     }
 

@@ -65,5 +65,43 @@ done
 [ "$after" = "$expected" ] && pass "Ravi's Essence balance moved $before → $after" \
   || fail "Ravi's balance is $after, expected $expected. Check the workflow in Temporal UI (http://localhost:8233)"
 
+echo "4. Onboarding: Asha signs up (BFF → Temporal → mapping → Atfinity → Essence → Thredd)"
+onb=$(curl -sf -X POST "$BFF/v1/onboarding" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuid)" \
+  -d '{"customerType":"INDIVIDUAL","name":"Asha Patel","email":"asha@example.com"}')
+ONB=$(echo "$onb" | field onboardingId)
+[ -n "$ONB" ] && pass "202 Accepted: onboarding $ONB" || fail "No onboardingId in $onb"
+for _ in $(seq 1 45); do
+  st=$(curl -s "$BFF/v1/onboarding/$ONB")
+  state=$(echo "$st" | field status)
+  [ "$state" = "COMPLETED" ] || [ "$state" = "FAILED" ] || [ "$state" = "REJECTED" ] && break
+  sleep 2
+done
+[ "$state" = "COMPLETED" ] && pass "Onboarding COMPLETED: $st" || fail "Onboarding ended as '$state': $st"
+ASHA=$(echo "$st" | field customerId)
+ASHA_ACC=$(echo "$st" | field accountId)
+ASHA_TOKEN=$(curl -sf "$MAPPING/v1/customers/$ASHA/graph" | grep -o '"entityType":"CARD","externalId":"[^"]*"' | sed 's/.*"externalId":"\([^"]*\)"/\1/')
+[ -n "$ASHA_TOKEN" ] && pass "Mapping holds Asha's KYC case, party, account $ASHA_ACC and card $ASHA_TOKEN" \
+  || fail "No card linked for customer $ASHA"
+
+echo "5. Onboarding: a KYC rejection ends with the customer REJECTED"
+onb=$(curl -sf -X POST "$BFF/v1/onboarding" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuid)" \
+  -d '{"customerType":"INDIVIDUAL","name":"Reject Test","email":"reject@example.com"}')
+ONB2=$(echo "$onb" | field onboardingId)
+for _ in $(seq 1 30); do
+  st=$(curl -s "$BFF/v1/onboarding/$ONB2"); state=$(echo "$st" | field status)
+  [ "$state" = "REJECTED" ] || [ "$state" = "COMPLETED" ] || [ "$state" = "FAILED" ] && break
+  sleep 2
+done
+[ "$state" = "REJECTED" ] && pass "Onboarding REJECTED as expected" || fail "Expected REJECTED, got '$state': $st"
+
+echo "6. Asha receives £100 by Faster Payment, then taps her new card (Thredd → EHI responder)"
+curl -sf -X POST "$SIM/essence/v1/sim/inbound" -H 'Content-Type: application/json' \
+  -d "{\"creditAccountId\":\"$ASHA_ACC\",\"amount\":\"100.00\",\"debtorName\":\"Arjun Mehta\",\"reference\":\"Welcome\"}" >/dev/null
+bal=$(curl -sf "$SIM/essence/v1/accounts/$ASHA_ACC/balance" | field available)
+[ "$bal" = "100.00" ] && pass "Asha's balance is £$bal" || fail "Expected 100.00, got $bal"
+tap=$(curl -sf -X POST "$SIM/thredd/v1/sim/card-tap" -H 'Content-Type: application/json' \
+  -d "{\"token\":\"$ASHA_TOKEN\",\"amount\":\"3.50\",\"merchant\":\"Bean There Cafe\"}")
+echo "$tap" | grep -q '"decision":"APPROVE"' && pass "Card tap approved: $tap" || fail "Expected APPROVE, got $tap"
+
 echo
-echo "All Phase 0 checks passed. Search the logs for $CORR to follow the payment across services."
+echo "All checks passed. Search the logs for $CORR to follow the payment across services."

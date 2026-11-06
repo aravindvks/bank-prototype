@@ -37,6 +37,10 @@ pbp:
     single-limit: 25000.00
   adapters:
     essence-url: ${ESSENCE_ADAPTER_URL:http://localhost:8084}
+  services:
+    mapping-url: ${MAPPING_URL:http://localhost:8082}
+    atfinity-adapter-url: ${ATFINITY_ADAPTER_URL:http://localhost:8086}
+    thredd-adapter-url: ${THREDD_ADAPTER_URL:http://localhost:8085}
 management:
   endpoints:
     web:

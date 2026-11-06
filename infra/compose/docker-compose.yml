@@ -103,6 +103,9 @@ services:
       ATFINITY_BASE_URL: http://vendor-simulator:8090/atfinity/v1
       ESSENCE_ADAPTER_URL: http://essence-adapter:8084
       MAPPING_URL: http://mapping-service:8082
+      ATFINITY_ADAPTER_URL: http://atfinity-adapter:8086
+      THREDD_ADAPTER_URL: http://thredd-adapter:8085
+      ORCHESTRATOR_URL: http://orchestrator:8081
     depends_on: &app-deps
       postgres: { condition: service_healthy }
       kafka-topics: { condition: service_completed_successfully }

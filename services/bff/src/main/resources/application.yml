@@ -24,6 +24,8 @@ pbp:
     default-type: TXN
   bank:
     sort-code: ${BANK_SORT_CODE:200001}
+  services:
+    orchestrator-url: ${ORCHESTRATOR_URL:http://localhost:8081}
 management:
   endpoints:
     web:

@@ -1,5 +1,6 @@
 package bank.pbp.mapping.model;
 
+import com.fasterxml.jackson.annotation.JsonRawValue;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -14,5 +15,6 @@ public record ExternalRef(
         OffsetDateTime validFrom,
         OffsetDateTime validTo,
         UUID replacedBy,
-        String createdCorrelationId) {
+        String createdCorrelationId,
+        @JsonRawValue String metadata) {
 }
