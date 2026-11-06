@@ -8,14 +8,15 @@ import java.util.regex.Pattern;
  * Identifier formats from LLD section 1.
  * <ul>
  *   <li>Customer, payment and event IDs: UUID v7 (time ordered).</li>
- *   <li>Correlation ID: {@code COR-<TYPE>-<12 base32 chars>}, e.g. COR-PAY-7K2M9QXA4B1D.</li>
+ *   <li>Correlation ID: {@code COR-<TYPE>-<12 chars>}, e.g. COR-PAY-7K2M9QXA4B1D. New IDs use base32
+ *       characters; validation accepts A-Z and 0-9 because the LLD example uses 9 and 1.</li>
  * </ul>
  */
 public final class Ids {
 
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final char[] BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".toCharArray();
-    private static final Pattern CORRELATION = Pattern.compile("^COR-(ONB|PAY|CRD|TXN|CUS|REC)-[A-Z2-7]{12}$");
+    private static final Pattern CORRELATION = Pattern.compile("^COR-(ONB|PAY|CRD|TXN|CUS|REC)-[A-Z0-9]{12}$");
 
     private Ids() {
     }
