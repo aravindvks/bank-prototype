@@ -26,7 +26,7 @@ Every push runs two GitHub Actions jobs: **build** (compile and unit tests, incl
 
 ## Run it
 
-Prerequisites: JDK 21 (or any JDK; Gradle downloads 21), Docker Desktop with Compose v2, `make`.
+Prerequisites: JDK 21, Docker Desktop with Compose v2, `make`. Gradle 8.10 must run on Java 21 or older: if your default `java` is newer (for example 25, which fails with "Unsupported class file major version 69"), `make` picks up an installed Java 21 automatically; without make, set `JAVA_HOME` to Java 21 first.
 
 ```bash
 make up       # builds all jars, starts infrastructure + services + vendor simulator

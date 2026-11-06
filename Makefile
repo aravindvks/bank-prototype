@@ -1,3 +1,13 @@
+# Gradle 8.10 cannot run on Java 22+ (e.g. "Unsupported class file major version 69" on Java 25).
+# Use a Java 21 install when one is found, whatever the default java is.
+JDK21 := $(shell /usr/libexec/java_home -v 21 -F 2>/dev/null)
+ifeq ($(JDK21),)
+JDK21 := $(firstword $(wildcard /usr/lib/jvm/java-21-openjdk-* /usr/lib/jvm/temurin-21-jdk-*))
+endif
+ifneq ($(JDK21),)
+export JAVA_HOME := $(JDK21)
+endif
+
 COMPOSE = docker compose -f infra/compose/docker-compose.yml
 
 .PHONY: build test infra up down logs smoke clean
