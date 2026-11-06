@@ -45,6 +45,18 @@ public class ThreddController {
         return Map.of("token", token, "status", req.status());
     }
 
+    @org.springframework.web.bind.annotation.PutMapping("/cards/{token}/controls")
+    public ThreddGateway.Controls controls(@PathVariable String token, @Valid @RequestBody ControlsRequest req,
+                                           @RequestHeader("Idempotency-Key") String idempotencyKey) {
+        ThreddGateway.Controls c = new ThreddGateway.Controls(req.dailyLimit(), req.online(), req.contactless(), req.atm());
+        thredd.setControls(token, c, idempotencyKey);
+        return c;
+    }
+
+    public record ControlsRequest(@NotBlank @Pattern(regexp = "\\d{1,7}\\.\\d{2}") String dailyLimit,
+                                  boolean online, boolean contactless, boolean atm) {
+    }
+
     public record IssueCard(@NotBlank String accountRef, @NotBlank String embossName) {
     }
 

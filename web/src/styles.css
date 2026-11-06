@@ -102,3 +102,13 @@ h1 { font-size: 20px; } h2 { font-size: 17px; } h3 { font-size: 15px; }
 .field.inline { flex-direction: row; align-items: center; gap: 8px; }
 a { color: var(--accent); }
 a.btn { text-decoration: none; color: var(--fg); }
+
+.ctl { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); }
+.sw { position: relative; width: 40px; height: 22px; border-radius: 999px; border: 0; background: var(--line); flex: none; padding: 0; }
+.sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); transition: left .15s; }
+.sw[aria-checked="true"] { background: var(--accent); }
+.sw[aria-checked="true"]::after { left: 21px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: none; padding: 5px 12px; font-size: 13px; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { .sw::after { transition: none; } }

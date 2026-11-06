@@ -27,4 +27,9 @@ public class ThreddSandboxGateway implements ThreddGateway {
     public void setStatus(String token, String status, String idempotencyKey) {
         throw notBuilt("cards.status");
     }
+
+    @Override
+    public void setControls(String token, Controls controls, String idempotencyKey) {
+        throw notBuilt("cards.controls");
+    }
 }

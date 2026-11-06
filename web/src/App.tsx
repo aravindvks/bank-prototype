@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, demo, gbp, ApiError, type Me, type Onboarding, type Payment } from './api';
+import { api, demo, gbp, ApiError, type CardControls, type Me, type Onboarding, type Payment } from './api';
 import Staff from './Staff';
 
 const STORAGE_KEY = 'pbp.customerId';
@@ -232,7 +232,7 @@ function Bank({ customerId, notify, onSignOut }: { customerId: string; notify: (
             ? <PaymentDetail id={selected} back={() => setSelected(null)} />
             : <Payments me={me} customerId={customerId} payments={payments} open={setSelected} notify={notify} after={refresh} />
         )}
-        {tab === 'card' && me && <CardView me={me} />}
+        {tab === 'card' && me && <CardView me={me} customerId={customerId} notify={notify} after={refresh} />}
       </main>
     </>
   );
@@ -390,20 +390,57 @@ function PaymentDetail({ id, back }: { id: string; back: () => void }) {
   );
 }
 
-function CardView({ me }: { me: Me }) {
-  if (!me.card) return <section className="panel"><p className="muted">No card yet.</p></section>;
+function CardView({ me, customerId, notify, after }: { me: Me; customerId: string; notify: (m: string) => void; after: () => void }) {
+  const card = me.card;
+  const [draft, setDraft] = useState<CardControls | null>(null);
+  if (!card) return <section className="panel"><p className="muted">No card yet.</p></section>;
+  const current: CardControls = draft ?? {
+    frozen: card.status === 'BLOCKED', dailyLimit: card.dailyLimit, online: card.online, contactless: card.contactless, atm: card.atm,
+  };
+  const apply = async (next: CardControls) => {
+    setDraft(next);
+    try {
+      const r = await api.cardControls(customerId, next);
+      notify(`Card controls updated · ${r.correlationId}`);
+      setTimeout(() => { setDraft(null); after(); }, 2500);
+    } catch (err) {
+      setDraft(null);
+      notify(err instanceof ApiError ? err.message : 'Could not update the card');
+    }
+  };
+  const blocked = me.status !== 'ACTIVE' || current.frozen;
+  const toggle = (key: 'frozen' | 'online' | 'contactless' | 'atm', label: string) => (
+    <div className="ctl">
+      <span>{label}</span>
+      <button className="sw" role="switch" aria-checked={current[key]} aria-label={label}
+        onClick={() => apply({ ...current, [key]: !current[key] })} />
+    </div>
+  );
   return (
     <section className="panel stack">
-      <div className={`plastic ${me.status !== 'ACTIVE' ? 'frozen' : ''}`}>
-        <div className="row between"><strong>Debit</strong><span className="mono">{me.status !== 'ACTIVE' ? 'BLOCKED' : 'VISA'}</span></div>
-        <div className="pan">•••• •••• •••• {me.card.last4}</div>
-        <div className="row between small"><span>{me.account?.name}</span><span className="mono">{me.card.token}</span></div>
+      <div className={`plastic ${blocked ? 'frozen' : ''}`}>
+        <div className="row between"><strong>Debit</strong><span className="mono">{blocked ? 'FROZEN' : 'VISA'}</span></div>
+        <div className="pan">•••• •••• •••• {card.last4}</div>
+        <div className="row between small"><span>{me.account?.name}</span><span className="mono">{card.token}</span></div>
       </div>
-      <dl className="kv">
-        <div><dt>Card status</dt><dd><Pill status={me.status !== 'ACTIVE' ? 'BLOCKED' : me.card.status} /></dd></div>
-        <div><dt>Daily limit</dt><dd className="num">{gbp(me.card.dailyLimit)}</dd></div>
-      </dl>
-      <p className="muted">Use the demo bar to tap this card. The decision comes from the EHI responder: card and customer status, daily limit, then an Essence hold.</p>
+      <div>
+        {toggle('frozen', 'Freeze card')}
+        {toggle('online', 'Online payments')}
+        {toggle('contactless', 'Contactless')}
+        {toggle('atm', 'ATM withdrawals')}
+        <div className="ctl">
+          <span>Daily limit</span>
+          <span className="seg">
+            {['100.00', '300.00', '1000.00'].map((v) => (
+              <button key={v} aria-pressed={current.dailyLimit === v} onClick={() => apply({ ...current, dailyLimit: v })}>
+                {gbp(v).replace('.00', '')}
+              </button>
+            ))}
+          </span>
+        </div>
+      </div>
+      <p className="muted">Changes go to Thredd and the bank's card cache; the next tap uses them within about 5 seconds.
+        The decision comes from the EHI responder: card and customer status, channel, daily limit, then an Essence hold.</p>
     </section>
   );
 }
@@ -413,7 +450,7 @@ function CardView({ me }: { me: Me }) {
 // ---------------------------------------------------------------------------------------------
 
 function DemoBar({ me, notify, after }: { me: Me | null; notify: (m: string) => void; after: () => void }) {
-  const [merchant, setMerchant] = useState('3.50|Bean There Cafe');
+  const [merchant, setMerchant] = useState('3.50|Bean There Cafe|contactless');
   const run = async (fn: () => Promise<string>) => {
     try {
       notify(await fn());
@@ -422,18 +459,19 @@ function DemoBar({ me, notify, after }: { me: Me | null; notify: (m: string) => 
       notify(err instanceof ApiError ? err.message : 'Demo action failed');
     }
   };
-  const [amount, name] = merchant.split('|');
+  const [amount, name, channel] = merchant.split('|');
   return (
     <div className="band">
       <div className="band-inner">
         <span className="tag">Demo controls</span>
         <select id="merchant" aria-label="Merchant" value={merchant} onChange={(e) => setMerchant(e.target.value)}>
-          <option value="3.50|Bean There Cafe">Cafe · £3.50</option>
-          <option value="45.00|Northwind Online">Online store · £45</option>
-          <option value="400.00|Volt Electronics">Electronics · £400</option>
+          <option value="3.50|Bean There Cafe|contactless">Cafe · £3.50 · contactless</option>
+          <option value="45.00|Northwind Online|online">Online store · £45</option>
+          <option value="100.00|ATM Liverpool St|atm">ATM · £100</option>
+          <option value="400.00|Volt Electronics|chip">Electronics · £400 · chip</option>
         </select>
         <button className="bbtn primary" disabled={!me?.card} onClick={() => run(async () => {
-          const d = await demo.tap(me!.card!.token, amount, name);
+          const d = await demo.tap(me!.card!.token, amount, name, channel);
           return d.decision === 'APPROVE' ? `Approved ${gbp(amount)} at ${name} (${d.latencyMs} ms)` : `Declined: ${d.reason}`;
         })}>Tap card</button>
         <button className="bbtn" disabled={!me?.account} onClick={() => run(async () => {

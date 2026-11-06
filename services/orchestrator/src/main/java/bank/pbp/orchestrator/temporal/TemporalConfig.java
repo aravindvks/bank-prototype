@@ -1,5 +1,7 @@
 package bank.pbp.orchestrator.temporal;
 
+import bank.pbp.orchestrator.cards.CardActivitiesImpl;
+import bank.pbp.orchestrator.cards.CardControlsWorkflow;
 import bank.pbp.orchestrator.compliance.ComplianceActivitiesImpl;
 import bank.pbp.orchestrator.compliance.ComplianceWorkflow;
 import bank.pbp.orchestrator.onboarding.OnboardingActivitiesImpl;
@@ -46,9 +48,10 @@ public class TemporalConfig {
     TemporalWorkers temporalWorkers(WorkerFactory factory, PaymentActivitiesImpl paymentActivities,
                                     OnboardingActivitiesImpl onboardingActivities,
                                     ComplianceActivitiesImpl complianceActivities,
-                                    InboundActivitiesImpl inboundActivities) {
+                                    InboundActivitiesImpl inboundActivities,
+                                    CardActivitiesImpl cardActivities) {
         return new TemporalWorkers(factory, paymentActivities, onboardingActivities, complianceActivities,
-                inboundActivities);
+                inboundActivities, cardActivities);
     }
 
     /** Starts polling after the context is ready and stops cleanly on shutdown. */
@@ -61,16 +64,18 @@ public class TemporalConfig {
         private final OnboardingActivitiesImpl onboardingActivities;
         private final ComplianceActivitiesImpl complianceActivities;
         private final InboundActivitiesImpl inboundActivities;
+        private final CardActivitiesImpl cardActivities;
         private volatile boolean running;
 
         TemporalWorkers(WorkerFactory factory, PaymentActivitiesImpl paymentActivities,
                         OnboardingActivitiesImpl onboardingActivities, ComplianceActivitiesImpl complianceActivities,
-                        InboundActivitiesImpl inboundActivities) {
+                        InboundActivitiesImpl inboundActivities, CardActivitiesImpl cardActivities) {
             this.factory = factory;
             this.paymentActivities = paymentActivities;
             this.onboardingActivities = onboardingActivities;
             this.complianceActivities = complianceActivities;
             this.inboundActivities = inboundActivities;
+            this.cardActivities = cardActivities;
         }
 
         @Override
@@ -84,6 +89,9 @@ public class TemporalConfig {
             Worker compliance = factory.newWorker(TaskQueues.COMPLIANCE);
             compliance.registerWorkflowImplementationTypes(ComplianceWorkflow.Impl.class);
             compliance.registerActivitiesImplementations(complianceActivities);
+            Worker cards = factory.newWorker(TaskQueues.CARDS);
+            cards.registerWorkflowImplementationTypes(CardControlsWorkflow.Impl.class);
+            cards.registerActivitiesImplementations(cardActivities);
             factory.start();
             running = true;
             log.info("temporal.workers.started queues=[{}, {}, {}]", TaskQueues.PAYMENTS, TaskQueues.ONBOARDING,

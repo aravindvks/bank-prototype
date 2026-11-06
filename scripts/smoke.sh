@@ -210,5 +210,19 @@ for _ in $(seq 1 10); do
 done
 echo "$tap" | grep -q '"decision":"APPROVE"' && pass "Asha's card works again" || fail "Expected APPROVE after CLEAR, got $tap"
 
+echo "15. Card controls: Priya turns off online payments, raises her limit, then freezes her card"
+ctl() { curl -sf -X PUT "$BFF/v1/cards/controls" -H 'Content-Type: application/json' -H "X-Customer-Id: $CUSTOMER" -d "$1" >/dev/null; }
+tapp() { curl -sf -X POST "$SIM/thredd/v1/sim/card-tap" -H 'Content-Type: application/json' \
+  -d "{\"token\":\"$TOKEN\",\"amount\":\"$1\",\"merchant\":\"$2\",\"channel\":\"$3\"}"; }
+ctl '{"frozen":false,"dailyLimit":"1000.00","online":false,"contactless":true,"atm":true}'
+for _ in $(seq 1 15); do t=$(tapp 20.00 "Northwind Online" online); echo "$t" | grep -q CHANNEL_BLOCKED && break; sleep 1; done
+echo "$t" | grep -q '"reason":"CHANNEL_BLOCKED"' && pass "Online purchase declined: CHANNEL_BLOCKED" || fail "Expected CHANNEL_BLOCKED, got $t"
+t=$(tapp 350.00 "Volt Electronics" chip)
+echo "$t" | grep -q '"decision":"APPROVE"' && pass "£350 approved under the new £1,000 limit" || fail "Expected APPROVE at £1,000 limit, got $t"
+ctl '{"frozen":true,"dailyLimit":"1000.00","online":false,"contactless":true,"atm":true}'
+for _ in $(seq 1 15); do t=$(tapp 2.00 "Bean There Cafe" contactless); echo "$t" | grep -q CARD_BLOCKED && break; sleep 1; done
+echo "$t" | grep -q '"reason":"CARD_BLOCKED"' && pass "Frozen card declined: CARD_BLOCKED" || fail "Expected CARD_BLOCKED, got $t"
+ctl '{"frozen":false,"dailyLimit":"300.00","online":true,"contactless":true,"atm":true}'
+
 echo
 echo "All checks passed. Search the logs for $CORR to follow the payment across services."

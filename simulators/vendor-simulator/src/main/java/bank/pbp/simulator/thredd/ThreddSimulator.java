@@ -30,6 +30,7 @@ public class ThreddSimulator {
     private static final SecureRandom RANDOM = new SecureRandom();
     private final Map<String, Map<String, Object>> cardsByIdempotencyKey = new ConcurrentHashMap<>();
     private final Map<String, String> statusByToken = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, Object>> controlsByToken = new ConcurrentHashMap<>();
     private final RestClient ehi;
     private final String ehiUrl;
 
@@ -70,6 +71,12 @@ public class ThreddSimulator {
      * Demo and test control: a purchase at a merchant. Sends an EHI authorisation to the bank and
      * returns the bank's decision, as the card network would see it.
      */
+    @org.springframework.web.bind.annotation.PutMapping("/cards/{token}/controls")
+    public Map<String, Object> controls(@PathVariable String token, @RequestBody Map<String, Object> controls) {
+        controlsByToken.put(token, controls);
+        return controls;
+    }
+
     /**
      * Demo and test control: the merchant settles an earlier purchase. Sends an EHI presentment
      * (or a reversal with {@code "reverse": true}) for the authorisation's message ID.

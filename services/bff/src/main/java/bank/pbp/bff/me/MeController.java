@@ -69,6 +69,9 @@ public class MeController {
                     card.put("last4", ref.path("metadata").path("last4").asText(null));
                     card.put("status", ref.path("status").asText());
                     card.put("dailyLimit", ref.path("metadata").path("dailyLimit").asText("300.00"));
+                    card.put("online", ref.path("metadata").path("online").asBoolean(true));
+                    card.put("contactless", ref.path("metadata").path("contactless").asBoolean(true));
+                    card.put("atm", ref.path("metadata").path("atm").asBoolean(true));
                     out.put("card", card);
                 }
                 case "KYC_CASE" -> out.put("kycCaseId", ref.path("externalId").asText());

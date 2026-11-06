@@ -32,7 +32,7 @@ import org.springframework.web.client.RestClientResponseException;
 /**
  * EHI message handling (LLD section 5).
  * <p>Authorisation order: duplicate → card lookup (cache first) → card and customer status →
- * daily card limit → Essence hold (funds check) → respond, then log and publish off the response
+ * channel controls (online, contactless, ATM) → daily card limit → Essence hold (funds check) → respond, then log and publish off the response
  * path. Presentment captures the hold; reversal releases it.
  */
 @Service
@@ -95,6 +95,9 @@ public class AuthorisationService {
         }
         if (!"ACTIVE".equals(card.customerStatus())) {
             return Outcome.decline("CUSTOMER_FROZEN");
+        }
+        if (!card.allows(msg.merchant() == null ? null : msg.merchant().channel())) {
+            return Outcome.decline("CHANNEL_BLOCKED");
         }
         long amountPence = pence(msg.amount());
         if (spentToday(msg.cardToken()) + amountPence > pence(card.dailyLimit())) {

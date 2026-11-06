@@ -16,7 +16,10 @@ export type Me = {
     ledger?: string;
     balanceError?: string;
   };
-  card?: { token: string; last4: string | null; status: string; dailyLimit: string };
+  card?: {
+    token: string; last4: string | null; status: string; dailyLimit: string;
+    online: boolean; contactless: boolean; atm: boolean;
+  };
 };
 
 export type Payment = {
@@ -44,6 +47,8 @@ export type Onboarding = {
   cardLast4: string | null;
   reason: string | null;
 };
+
+export type CardControls = { frozen: boolean; dailyLimit: string; online: boolean; contactless: boolean; atm: boolean };
 
 export class ApiError extends Error {
   constructor(message: string, readonly code?: string, readonly correlationId?: string) {
@@ -73,13 +78,15 @@ export const api = {
   signUp: (body: unknown) =>
     request<{ onboardingId: string; correlationId: string }>('/v1/onboarding', { method: 'POST', body: JSON.stringify(body) }),
   onboarding: (id: string) => request<Onboarding>(`/v1/onboarding/${id}`),
+  cardControls: (customerId: string, body: CardControls) =>
+    request<{ commandId: string; correlationId: string }>('/v1/cards/controls', { method: 'PUT', body: JSON.stringify(body) }, customerId),
 };
 
 // Demo toolbar: plays the card network, other banks and Atfinity through the vendor simulator.
 export const demo = {
-  tap: (token: string, amount: string, merchant: string) =>
+  tap: (token: string, amount: string, merchant: string, channel: string) =>
     request<{ messageId: string; decision: string; reason: string | null; latencyMs: number }>(
-      '/sim/thredd/v1/sim/card-tap', { method: 'POST', body: JSON.stringify({ token, amount, merchant }) }),
+      '/sim/thredd/v1/sim/card-tap', { method: 'POST', body: JSON.stringify({ token, amount, merchant, channel }) }),
   receive: (accountId: string, amount: string) =>
     request('/sim/essence/v1/sim/inbound', {
       method: 'POST',

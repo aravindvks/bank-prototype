@@ -24,7 +24,8 @@ import org.springframework.stereotype.Component;
  * reads. On any change for a customer it rebuilds that customer's card keys from PostgreSQL, so
  * out-of-order events always end in the latest state.
  * <ul>
- *   <li>{@code card:{token}} → {customerId, account, cardStatus, customerStatus, dailyLimit, v}</li>
+ *   <li>{@code card:{token}} → {customerId, account, cardStatus, customerStatus, dailyLimit, online,
+ *       contactless, atm, v}</li>
  *   <li>{@code cust:{customerId}:cards} → set of tokens</li>
  * </ul>
  */
@@ -75,7 +76,11 @@ public class CardCacheUpdater {
             value.put("account", account);
             value.put("cardStatus", card.status());
             value.put("customerStatus", customer.get().status());
-            value.put("dailyLimit", metadata(card).path("dailyLimit").asText(DEFAULT_DAILY_LIMIT));
+            JsonNode meta = metadata(card);
+            value.put("dailyLimit", meta.path("dailyLimit").asText(DEFAULT_DAILY_LIMIT));
+            value.put("online", meta.path("online").asBoolean(true));
+            value.put("contactless", meta.path("contactless").asBoolean(true));
+            value.put("atm", meta.path("atm").asBoolean(true));
             value.put("v", customer.get().version());
             redis.opsForValue().set("card:" + card.externalId(), json(value));
             redis.opsForSet().add("cust:" + customerId + ":cards", card.externalId());

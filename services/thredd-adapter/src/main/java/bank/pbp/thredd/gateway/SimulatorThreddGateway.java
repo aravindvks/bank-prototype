@@ -58,4 +58,14 @@ public class SimulatorThreddGateway implements ThreddGateway {
                 .retrieve()
                 .toBodilessEntity());
     }
+
+    @Override
+    public void setControls(String token, Controls controls, String idempotencyKey) {
+        VendorErrors.call("thredd", "cards.controls", () -> thredd.put()
+                .uri("/cards/{token}/controls", token)
+                .header("IdempotencyKey", idempotencyKey)
+                .body(controls)
+                .retrieve()
+                .toBodilessEntity());
+    }
 }
