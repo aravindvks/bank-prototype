@@ -40,3 +40,48 @@ jobs:
 
       - name: Validate Docker Compose file
         run: docker compose -f infra/compose/docker-compose.yml --profile apps config --quiet
+
+  # Starts the full stack in Docker and runs scripts/smoke.sh: mapping links, a card tap through
+  # the EHI responder, and a same-bank payment through BFF → Kafka → Temporal → Essence adapter.
+  e2e:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Start the stack
+        run: |
+          ./gradlew bootJar --no-daemon
+          docker compose -f infra/compose/docker-compose.yml --profile apps up -d --build
+
+      - name: Wait for services
+        run: |
+          for port in 8090 8082 8084 8083 8080 8081 8087; do
+            for i in $(seq 1 90); do
+              curl -sf "http://localhost:$port/actuator/health" >/dev/null && { echo "port $port up"; break; }
+              sleep 2
+            done
+            curl -sf "http://localhost:$port/actuator/health" >/dev/null || { echo "port $port did not start"; exit 1; }
+          done
+
+      - name: Smoke test
+        run: ./scripts/smoke.sh 2>&1 | tee smoke.log
+
+      - name: Report stack errors
+        if: failure()
+        run: |
+          docker compose -f infra/compose/docker-compose.yml --profile apps ps -a > ps.txt 2>&1 || true
+          docker compose -f infra/compose/docker-compose.yml --profile apps logs --no-color > stack.log 2>&1 || true
+          {
+            cat ps.txt
+            echo "---- smoke ----"; cat smoke.log 2>/dev/null
+            echo "---- errors ----"
+            grep -E "ERROR|Exception|Caused by|FAIL|refused|denied" stack.log | grep -v "WARN" | head -80
+          } > summary.txt
+          msg=$(sed -e 's/%/%25/g' summary.txt | cut -c1-400 | awk '{printf "%s%%0A", $0}')
+          echo "::error title=End-to-end failed::${msg}"
