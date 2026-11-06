@@ -16,7 +16,7 @@ The design is in the HLD and LLD documents ("Banking Platform Prototype – High
 | --- | --- | --- |
 | 0 | Build, local stack, schemas, topics, service skeletons, simulators, one same-bank payment and one card tap end to end | Done |
 | 1 | Priya end to end: onboarding and KYC saga, card issue, EHI with cache, holds, limits and settlement, sanctions freeze, outbound UK payments with scheme status, inbound payments, customer web app; simulator and sandbox connectors per vendor (`vendor.<name>.mode`) | **Done** |
-| 2 | Staff portal (review, unfreeze), card controls, recon matching, WebSocket push, observability dashboards, outbox relay with Debezium, login | Next |
+| 2 | Done: staff portal (review queue, clear or confirm, journey search), card controls, live push (Server-Sent Events). Next: outbox relay with Debezium, recon matching, login, observability dashboards | In progress |
 | 3 | OCI Terraform (OKE, API Gateway, EHI listener, PostgreSQL, Streaming, Vault) and pipelines | |
 | 4 | Switch each adapter from simulator to vendor sandbox as credentials arrive | |
 
@@ -30,7 +30,7 @@ Prerequisites: JDK 21, Docker Desktop with Compose v2, `make`. Gradle 8.10 must 
 
 ```bash
 make up       # builds all jars, starts infrastructure + services + vendor simulator
-make smoke    # end-to-end check of the whole Priya journey (13 steps)
+make smoke    # end-to-end check of the whole Priya journey (16 steps)
 make down     # stop (keeps data);  make clean  removes data too
 ```
 
@@ -38,7 +38,8 @@ Infrastructure only, for running services from the IDE: `make infra`.
 
 | What | URL |
 | --- | --- |
-| **Customer web app** | **http://localhost:3000** (sign up, pay, card; demo bar on top) |
+| **Customer web app** | **http://localhost:3000** (sign up, pay, card controls; demo bar on top) |
+| **Staff portal** | **http://localhost:3000/#staff** (reviews, held payments, journey search) |
 | BFF (customer API) | http://localhost:8080 |
 | Orchestrator | http://localhost:8081 |
 | Mapping service | http://localhost:8082 |
@@ -65,6 +66,9 @@ Infrastructure only, for running services from the IDE: `make infra`.
 11. A payment to sort code 99-xx-xx is rejected by the scheme (PAY-SCHEME-001)
 12. Inbound payments are recorded: COMPLETED for an active customer, FLAGGED once frozen
 13. The web app serves and reads the BFF through nginx
+14. Staff clears Asha's case: she is ACTIVE, the held £5 is released and her card works again
+15. Card controls: online switched off → CHANNEL_BLOCKED; £350 approved at a £1,000 limit; frozen card → CARD_BLOCKED
+16. Live push: Priya's incoming payment arrives on her event stream
 
 ## Simulator rules (for demos)
 
@@ -113,9 +117,9 @@ that class is written. Nothing outside the adapter changes.
 
 - Events are published directly to Kafka inside the request; the transactional outbox with Debezium replaces this in Phase 2. The `outbox` and `inbox` tables already exist.
 - The BFF takes the customer from an `X-Customer-Id` header; Identity Domains login replaces it.
-- The web app polls every 3 seconds; WebSocket push from the BFF arrives in Phase 2.
+- Live push identifies the customer by query string until login is added.
 - Webhooks are verified and published directly; the inbox table is used from Phase 2.
-- Frozen customers stay frozen until the staff portal (review and unfreeze) in Phase 2.
+- Staff are identified by the X-Staff-User header until staff login is added.
 - Vendor field names are placeholders until each vendor's API specification is received.
 
 ## Corrections to the LLD found while building
