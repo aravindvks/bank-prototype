@@ -188,6 +188,44 @@ public class PaymentActivitiesImpl implements PaymentActivities {
         });
     }
 
+    @Override
+    public String submitPayment(PaymentCommand c) {
+        return withCorrelation(c, () -> {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("debitAccount", c.debtorAccount());
+            body.put("creditor", Map.of("name", c.creditorName(), "sortCode", c.creditorSortCode(),
+                    "accountNumber", c.creditorAccountNumber()));
+            body.put("amount", Map.of("value", c.amount(), "currency", c.currency()));
+            body.put("reference", c.remittanceInfo());
+            // Our payment ID travels as the end-to-end ID, so Finastra's status reports name the payment.
+            body.put("endToEndId", c.paymentId());
+            body.put("idempotencyKey", c.paymentId());
+            Map<String, Object> result;
+            try {
+                result = essence.post().uri("/v1/payments").body(body).retrieve().body(MAP);
+            } catch (RestClientResponseException e) {
+                JsonNode problem = problem(e.getResponseBodyAsString());
+                String code = problem.path("code").asText("VND-REJECT-001");
+                String detail = problem.path("detail").asText("Rejected by Finastra");
+                if (!problem.path("retryable").asBoolean(e.getStatusCode().is5xxServerError())) {
+                    throw ApplicationFailure.newNonRetryableFailure(detail, code);
+                }
+                throw ApplicationFailure.newFailure(detail, code);
+            }
+            String finastraRef = String.valueOf(result == null ? null : result.get("finastraRef"));
+            jdbc.sql("""
+                            UPDATE payment SET finastra_ref = :ref
+                            WHERE payment_id = :id AND created_at = :createdAt""")
+                    .param("ref", finastraRef)
+                    .param("id", UUID.fromString(c.paymentId()))
+                    .param("createdAt", OffsetDateTime.parse(c.initiatedAt()))
+                    .update();
+            log.info("payment.submitted paymentId={} finastraRef={} scheme={}", c.paymentId(), finastraRef,
+                    result == null ? null : result.get("scheme"));
+            return finastraRef;
+        });
+    }
+
     private void publish(PaymentCommand c, String type, String status, String reason) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("paymentId", c.paymentId());

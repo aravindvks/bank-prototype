@@ -135,5 +135,43 @@ echo "$tap" | grep -q '"reason":"CUSTOMER_FROZEN"' && pass "Declined: CUSTOMER_F
 status=$(curl -sf "$MAPPING/v1/customers/$ASHA" | field status)
 [ "$status" = "FROZEN" ] && pass "Asha's customer status is FROZEN" || fail "Expected FROZEN, got $status"
 
+echo "10. Other-bank payment: Priya pays £15 to Barclays (Finastra routes it and reports scheme status)"
+resp=$(curl -sf -X POST "$BFF/v1/payments" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuid)" \
+  -H "X-Customer-Id: $CUSTOMER" \
+  -d '{"debtorAccount":"ACC-5501","creditor":{"name":"Arjun Mehta","sortCode":"040004","accountNumber":"12345678"},"amount":{"value":"15.00","currency":"GBP"},"remittanceInfo":"Dinner","copResult":"MATCH"}')
+OUT=$(echo "$resp" | field paymentId)
+for _ in $(seq 1 20); do
+  p=$(curl -s "$BFF/v1/payments/$OUT"); state=$(echo "$p" | grep -o '"status":"[A-Z_]*"' | head -1 | sed 's/.*:"\(.*\)"/\1/')
+  [ "$state" = "COMPLETED" ] || [ "$state" = "REJECTED" ] || [ "$state" = "FAILED" ] && break
+  sleep 1
+done
+[ "$state" = "COMPLETED" ] && echo "$p" | grep -q '"to":"ACCEPTED"' && pass "FPS payment COMPLETED via SUBMITTED → ACCEPTED (Finastra $(echo "$p" | field finastraRef))" \
+  || fail "Expected COMPLETED with an ACCEPTED step, got: $p"
+
+echo "11. Scheme rejection: a payment to sort code 99-00-00 is rejected and the money returned"
+resp=$(curl -sf -X POST "$BFF/v1/payments" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuid)" \
+  -H "X-Customer-Id: $CUSTOMER" \
+  -d '{"debtorAccount":"ACC-5501","creditor":{"name":"Nobody","sortCode":"990000","accountNumber":"00000000"},"amount":{"value":"10.00","currency":"GBP"},"remittanceInfo":"Test"}')
+REJ=$(echo "$resp" | field paymentId)
+for _ in $(seq 1 20); do
+  p=$(curl -s "$BFF/v1/payments/$REJ"); state=$(echo "$p" | grep -o '"status":"[A-Z_]*"' | head -1 | sed 's/.*:"\(.*\)"/\1/')
+  [ "$state" = "REJECTED" ] || [ "$state" = "COMPLETED" ] || [ "$state" = "FAILED" ] && break
+  sleep 1
+done
+[ "$state" = "REJECTED" ] && echo "$p" | grep -q 'PAY-SCHEME-001' && pass "REJECTED with PAY-SCHEME-001" || fail "Expected scheme rejection, got: $p"
+
+echo "12. Inbound payments are recorded: COMPLETED for an active customer, FLAGGED once frozen"
+list=$(curl -sf "$BFF/v1/payments" -H "X-Customer-Id: $ASHA")
+echo "$list" | grep -q '"paymentType":"INBOUND","status":"COMPLETED"' && pass "Asha's £100 welcome payment recorded as INBOUND COMPLETED" \
+  || fail "No completed inbound payment for Asha: $list"
+curl -sf -X POST "$SIM/essence/v1/sim/inbound" -H 'Content-Type: application/json' \
+  -d "{\"creditAccountId\":\"$ASHA_ACC\",\"amount\":\"5.00\",\"debtorName\":\"Arjun Mehta\",\"reference\":\"Coffee\"}" >/dev/null
+for _ in $(seq 1 15); do
+  list=$(curl -sf "$BFF/v1/payments" -H "X-Customer-Id: $ASHA")
+  echo "$list" | grep -q '"status":"FLAGGED"' && break
+  sleep 1
+done
+echo "$list" | grep -q '"status":"FLAGGED"' && pass "£5 to frozen Asha recorded as FLAGGED for review" || fail "Expected a FLAGGED inbound payment: $list"
+
 echo
 echo "All checks passed. Search the logs for $CORR to follow the payment across services."

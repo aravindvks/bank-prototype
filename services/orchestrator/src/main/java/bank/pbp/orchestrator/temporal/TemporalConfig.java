@@ -4,6 +4,8 @@ import bank.pbp.orchestrator.compliance.ComplianceActivitiesImpl;
 import bank.pbp.orchestrator.compliance.ComplianceWorkflow;
 import bank.pbp.orchestrator.onboarding.OnboardingActivitiesImpl;
 import bank.pbp.orchestrator.onboarding.OnboardingWorkflowImpl;
+import bank.pbp.orchestrator.payments.InboundActivitiesImpl;
+import bank.pbp.orchestrator.payments.InboundPaymentWorkflow;
 import bank.pbp.orchestrator.payments.PaymentActivitiesImpl;
 import bank.pbp.orchestrator.payments.PaymentWorkflowImpl;
 import io.temporal.client.WorkflowClient;
@@ -43,8 +45,10 @@ public class TemporalConfig {
     @Bean
     TemporalWorkers temporalWorkers(WorkerFactory factory, PaymentActivitiesImpl paymentActivities,
                                     OnboardingActivitiesImpl onboardingActivities,
-                                    ComplianceActivitiesImpl complianceActivities) {
-        return new TemporalWorkers(factory, paymentActivities, onboardingActivities, complianceActivities);
+                                    ComplianceActivitiesImpl complianceActivities,
+                                    InboundActivitiesImpl inboundActivities) {
+        return new TemporalWorkers(factory, paymentActivities, onboardingActivities, complianceActivities,
+                inboundActivities);
     }
 
     /** Starts polling after the context is ready and stops cleanly on shutdown. */
@@ -56,21 +60,24 @@ public class TemporalConfig {
         private final PaymentActivitiesImpl paymentActivities;
         private final OnboardingActivitiesImpl onboardingActivities;
         private final ComplianceActivitiesImpl complianceActivities;
+        private final InboundActivitiesImpl inboundActivities;
         private volatile boolean running;
 
         TemporalWorkers(WorkerFactory factory, PaymentActivitiesImpl paymentActivities,
-                        OnboardingActivitiesImpl onboardingActivities, ComplianceActivitiesImpl complianceActivities) {
+                        OnboardingActivitiesImpl onboardingActivities, ComplianceActivitiesImpl complianceActivities,
+                        InboundActivitiesImpl inboundActivities) {
             this.factory = factory;
             this.paymentActivities = paymentActivities;
             this.onboardingActivities = onboardingActivities;
             this.complianceActivities = complianceActivities;
+            this.inboundActivities = inboundActivities;
         }
 
         @Override
         public void start() {
             Worker payments = factory.newWorker(TaskQueues.PAYMENTS);
-            payments.registerWorkflowImplementationTypes(PaymentWorkflowImpl.class);
-            payments.registerActivitiesImplementations(paymentActivities);
+            payments.registerWorkflowImplementationTypes(PaymentWorkflowImpl.class, InboundPaymentWorkflow.Impl.class);
+            payments.registerActivitiesImplementations(paymentActivities, inboundActivities);
             Worker onboarding = factory.newWorker(TaskQueues.ONBOARDING);
             onboarding.registerWorkflowImplementationTypes(OnboardingWorkflowImpl.class);
             onboarding.registerActivitiesImplementations(onboardingActivities);

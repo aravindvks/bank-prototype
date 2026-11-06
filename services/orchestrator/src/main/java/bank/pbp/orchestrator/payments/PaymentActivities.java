@@ -23,6 +23,12 @@ public interface PaymentActivities {
      */
     String postInternalTransfer(PaymentCommand command);
 
+    /**
+     * Outbound UK payment through the Essence adapter; Finastra chooses FPS, CHAPS or Bacs.
+     * Records and returns Finastra's reference. Non-retryable failure when Essence refuses it.
+     */
+    String submitPayment(PaymentCommand command);
+
     record RiskResult(boolean passed, String code, String reason) {
     }
 }

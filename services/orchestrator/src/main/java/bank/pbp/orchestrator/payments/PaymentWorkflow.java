@@ -13,9 +13,9 @@ public interface PaymentWorkflow {
     @WorkflowMethod
     String run(PaymentCommand command);
 
-    /** Scheme status from Finastra (ACCEPTED, COMPLETED, REJECTED). Used by outbound rails in Phase 1. */
+    /** Scheme status from Finastra (ACCEPTED, COMPLETED, REJECTED), via payment.scheme_status. */
     @SignalMethod
-    void paymentStatus(String status);
+    void paymentStatus(String status, String reason);
 
     @QueryMethod
     String currentStatus();

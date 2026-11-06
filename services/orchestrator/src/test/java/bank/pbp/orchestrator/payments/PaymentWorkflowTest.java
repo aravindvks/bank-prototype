@@ -3,7 +3,9 @@ package bank.pbp.orchestrator.payments;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import bank.pbp.orchestrator.temporal.TaskQueues;
+import io.temporal.client.WorkflowClient;
 import io.temporal.client.WorkflowOptions;
+import io.temporal.client.WorkflowStub;
 import io.temporal.failure.ApplicationFailure;
 import io.temporal.testing.TestWorkflowEnvironment;
 import io.temporal.worker.Worker;
@@ -56,16 +58,40 @@ class PaymentWorkflowTest {
     }
 
     @Test
-    void outboundRailsAreNotInPhaseZero() {
-        assertThat(run(command("20.00", "FPS"))).isEqualTo("REJECTED");
-        assertThat(fake.transitions).last().isEqualTo("CHECKS_PASSED->REJECTED");
+    void otherBankPaymentCompletesWhenTheSchemeReportsCompleted() {
+        PaymentCommand cmd = command("20.00", "FPS");
+        PaymentWorkflow workflow = stub(cmd);
+        WorkflowClient.start(workflow::run, cmd);
+        workflow.paymentStatus("ACCEPTED", null);
+        workflow.paymentStatus("COMPLETED", null);
+        assertThat(WorkflowStub.fromTyped(workflow).getResult(String.class)).isEqualTo("COMPLETED");
+        assertThat(fake.transitions).containsExactly("INITIATED->CHECKS_PASSED", "CHECKS_PASSED->SUBMITTED",
+                "SUBMITTED->ACCEPTED", "ACCEPTED->COMPLETED");
+    }
+
+    @Test
+    void otherBankPaymentRejectedByTheScheme() {
+        PaymentCommand cmd = command("20.00", "FPS");
+        PaymentWorkflow workflow = stub(cmd);
+        WorkflowClient.start(workflow::run, cmd);
+        workflow.paymentStatus("REJECTED", "AC01 Incorrect account number");
+        assertThat(WorkflowStub.fromTyped(workflow).getResult(String.class)).isEqualTo("REJECTED");
+    }
+
+    @Test
+    void otherBankPaymentFailsWhenNoFinalStatusArrives() {
+        assertThat(run(command("20.00", "FPS"))).isEqualTo("FAILED");
+        assertThat(fake.transitions).last().isEqualTo("SUBMITTED->FAILED");
     }
 
     private String run(PaymentCommand command) {
-        PaymentWorkflow workflow = env.getWorkflowClient().newWorkflowStub(PaymentWorkflow.class,
+        return stub(command).run(command);
+    }
+
+    private PaymentWorkflow stub(PaymentCommand command) {
+        return env.getWorkflowClient().newWorkflowStub(PaymentWorkflow.class,
                 WorkflowOptions.newBuilder().setTaskQueue(TaskQueues.PAYMENTS)
                         .setWorkflowId("payment-" + command.paymentId()).build());
-        return workflow.run(command);
     }
 
     private static PaymentCommand command(String amount, String type) {
@@ -101,6 +127,11 @@ class PaymentWorkflowTest {
                 throw ApplicationFailure.newNonRetryableFailure("Available balance is below the amount", "PAY-FUNDS-001");
             }
             return "PST-TEST0001";
+        }
+
+        @Override
+        public String submitPayment(PaymentCommand command) {
+            return "FIN-TEST0001";
         }
     }
 }
