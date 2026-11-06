@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, demo, gbp, ApiError, type CardControls, type Me, type Onboarding, type Payment } from './api';
+import { api, demo, gbp, toDate, ApiError, type CardControls, type Me, type Onboarding, type Payment } from './api';
 import Staff from './Staff';
 
 const STORAGE_KEY = 'pbp.customerId';
@@ -34,10 +34,11 @@ function saveCustomer(id: string | null) {
 export default function App() {
   const [customerId, setCustomerId] = useState<string | null>(readCustomer);
   const [toast, setToast] = useState<string | null>(null);
-  const [staffView, setStaffView] = useState(() => location.hash === '#staff');
+  const isStaff = () => location.hash === '#staff' || location.pathname.startsWith('/staff');
+  const [staffView, setStaffView] = useState(isStaff);
 
   useEffect(() => {
-    const onHash = () => setStaffView(location.hash === '#staff');
+    const onHash = () => setStaffView(isStaff());
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -94,7 +95,7 @@ function Welcome({ onReady, notify }: { onReady: (id: string) => void; notify: (
     <main className="shell narrow">
       <header className="brand">
         <h1>Banking Platform Prototype</h1>
-        <p className="muted">UK current account · runs on the real backend with vendor simulators · <a href="#staff">Staff portal</a></p>
+        <p className="muted">UK current account · runs on the real backend with vendor simulators · <a href="/staff">Staff portal</a></p>
       </header>
       <form className="panel stack" onSubmit={submit}>
         <h2>Open an account</h2>
@@ -228,7 +229,7 @@ function Bank({ customerId, notify, onSignOut }: { customerId: string; notify: (
               {' '}<span className={`pill ${live ? 'p-ok' : 'p-n'}`}>{live ? 'live' : 'offline'}</span></p>
           </div>
           <div className="row">
-            <a className="btn small" href="#staff">Staff portal</a>
+            <a className="btn small" href="/staff">Staff portal</a>
             <button className="btn small" onClick={onSignOut}>Sign out</button>
           </div>
         </header>
@@ -341,7 +342,7 @@ function PaymentList({ payments, open }: { payments: Payment[]; open: (id: strin
               <tr key={p.paymentId} className="click" tabIndex={0} onClick={() => open(p.paymentId)} onKeyDown={(e) => e.key === 'Enter' && open(p.paymentId)}>
                 <td>
                   <div>{inbound ? `From ${c.debtorName ?? 'another bank'}` : `To ${c.name ?? '—'}`}</div>
-                  <div className="meta">{label(p.paymentType)} · {new Date(p.createdAt).toLocaleString('en-GB')}</div>
+                  <div className="meta">{label(p.paymentType)} · {toDate(p.createdAt).toLocaleString('en-GB')}</div>
                 </td>
                 <td><Pill status={p.status} /></td>
                 <td className={`amt num ${inbound ? 'in' : ''}`}>{inbound ? '+' : '−'}{gbp(p.amount)}</td>
@@ -394,7 +395,7 @@ function PaymentDetail({ id, back }: { id: string; back: () => void }) {
           <ol className="timeline">
             {p.history?.map((h, i) => (
               <li key={i} className={['REJECTED', 'FAILED', 'FLAGGED'].includes(h.to) ? 'bad' : ''}>
-                <span className="meta">{new Date(h.at).toLocaleTimeString('en-GB')} · {h.actor}</span>
+                <span className="meta">{toDate(h.at).toLocaleTimeString('en-GB')} · {h.actor}</span>
                 <strong>{h.to}</strong>{h.reason ? ` — ${h.reason}` : ''}
               </li>
             ))}

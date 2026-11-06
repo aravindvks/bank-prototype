@@ -97,3 +97,6 @@ export const demo = {
 
 export const gbp = (v: string | null | undefined) =>
   v == null ? '—' : new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(Number(v));
+
+/** Parses PostgreSQL timestamp text ("2026-11-06 13:55:02.1+00") as well as ISO 8601. */
+export const toDate = (t: string) => new Date(t.replace(' ', 'T').replace(/([+-]\d\d)$/, '$1:00'));

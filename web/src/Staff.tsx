@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, gbp } from './api';
+import { ApiError, gbp, toDate } from './api';
 
 type Row = Record<string, string | null>;
 type Queue = { reviews: Row[]; flaggedPayments: Row[]; stuckSagas: Row[] };
@@ -66,20 +66,28 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
     }
   };
 
+  const open = (queue?.reviews.length ?? 0) + (queue?.flaggedPayments.length ?? 0) + (queue?.stuckSagas.length ?? 0);
   return (
-    <main className="shell">
-      <header className="topbar">
-        <div className="brand">
-          <p className="eyebrow">Staff portal</p>
-          <h1>Control Room</h1>
-        </div>
-        <div className="row">
-          <label className="field inline">Signed in as
+    <div className="staff-theme">
+      <div className="staff-bar">
+        <div className="staff-bar-inner">
+          <span className="staff-badge">Staff only</span>
+          <strong className="staff-title">Control Room</strong>
+          <span className="staff-sub">Banking Platform Prototype · operations and compliance</span>
+          <span className="spacer" />
+          <label className="staff-user">Signed in as
             <input id="staff" value={staff} onChange={(e) => setStaff(e.target.value)} />
           </label>
-          <a className="btn small" href="#">Customer app</a>
+          <a className="staff-link" href="/">Customer app →</a>
         </div>
-      </header>
+      </div>
+    <main className="shell wide">
+      <div className="tiles">
+        <div className="tile"><span className="eyebrow">Open reviews</span><span className="tile-v">{queue?.reviews.length ?? 0}</span></div>
+        <div className="tile"><span className="eyebrow">Held payments</span><span className="tile-v">{queue?.flaggedPayments.length ?? 0}</span></div>
+        <div className="tile"><span className="eyebrow">Stuck sagas</span><span className="tile-v">{queue?.stuckSagas.length ?? 0}</span></div>
+        <div className="tile"><span className="eyebrow">Needs attention</span><span className={`tile-v ${open ? 'warn' : ''}`}>{open}</span></div>
+      </div>
 
       <section className="panel stack">
         <div className="row between"><h2>Compliance reviews</h2><span className="pill p-n">{queue?.reviews.length ?? 0} open</span></div>
@@ -169,7 +177,8 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
         </div>
       </section>
     </main>
+    </div>
   );
 }
 
-const fmt = (t?: string | null) => (t ? new Date(t.replace(' ', 'T')).toLocaleString('en-GB') : '—');
+const fmt = (t?: string | null) => (t ? toDate(t).toLocaleString('en-GB') : '—');
