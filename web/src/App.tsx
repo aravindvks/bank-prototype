@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, demo, gbp, ApiError, type Me, type Onboarding, type Payment } from './api';
+import Staff from './Staff';
 
 const STORAGE_KEY = 'pbp.customerId';
 const ONBOARDING_STEPS = [
@@ -33,6 +34,13 @@ function saveCustomer(id: string | null) {
 export default function App() {
   const [customerId, setCustomerId] = useState<string | null>(readCustomer);
   const [toast, setToast] = useState<string | null>(null);
+  const [staffView, setStaffView] = useState(() => location.hash === '#staff');
+
+  useEffect(() => {
+    const onHash = () => setStaffView(location.hash === '#staff');
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -47,7 +55,7 @@ export default function App() {
 
   return (
     <>
-      {customerId ? (
+      {staffView ? <Staff notify={setToast} /> : customerId ? (
         <Bank customerId={customerId} notify={setToast} onSignOut={() => { saveCustomer(null); setCustomerId(null); }} />
       ) : (
         <Welcome onReady={signIn} notify={setToast} />
@@ -86,7 +94,7 @@ function Welcome({ onReady, notify }: { onReady: (id: string) => void; notify: (
     <main className="shell narrow">
       <header className="brand">
         <h1>Banking Platform Prototype</h1>
-        <p className="muted">UK current account · runs on the real backend with vendor simulators</p>
+        <p className="muted">UK current account · runs on the real backend with vendor simulators · <a href="#staff">Staff portal</a></p>
       </header>
       <form className="panel stack" onSubmit={submit}>
         <h2>Open an account</h2>
@@ -204,7 +212,10 @@ function Bank({ customerId, notify, onSignOut }: { customerId: string; notify: (
             <h1>Banking Platform Prototype</h1>
             <p className="muted">{me?.account?.name ?? 'Loading…'} · <span className="mono small">{customerId}</span></p>
           </div>
-          <button className="btn small" onClick={onSignOut}>Sign out</button>
+          <div className="row">
+            <a className="btn small" href="#staff">Staff portal</a>
+            <button className="btn small" onClick={onSignOut}>Sign out</button>
+          </div>
         </header>
         <nav className="tabs" aria-label="Sections">
           {(['home', 'payments', 'card'] as Tab[]).map((t) => (

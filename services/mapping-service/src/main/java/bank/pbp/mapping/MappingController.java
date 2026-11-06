@@ -66,6 +66,17 @@ public class MappingController {
         return service.updateKyc(id, body.kycStatus(), body.validUntil(), body.riskRating(), actor);
     }
 
+    @GetMapping("/customers")
+    public java.util.List<Customer> byStatus(@RequestParam String status) {
+        return service.customersByStatus(status);
+    }
+
+    @PatchMapping("/refs/{refId}")
+    public ExternalRef updateRef(@PathVariable UUID refId, @RequestBody RefUpdate body,
+                                 @RequestHeader(value = "X-Actor", defaultValue = "svc:unknown") String actor) {
+        return service.updateRef(refId, body.status(), body.metadata(), actor);
+    }
+
     @GetMapping("/resolve")
     public Map<String, Object> resolve(@RequestParam String system, @RequestParam String type,
                                        @RequestParam String id) {
@@ -80,6 +91,9 @@ public class MappingController {
 
     public record LinkRef(@NotBlank String system, @NotBlank String entityType, @NotBlank String externalId,
                           UUID parentRefId, String status, Map<String, Object> metadata) {
+    }
+
+    public record RefUpdate(String status, Map<String, Object> metadata) {
     }
 
     public record KycUpdate(@NotBlank String kycStatus, java.time.LocalDate validUntil, String riskRating) {

@@ -184,5 +184,31 @@ me=$(curl -sf "$WEB/v1/me" -H "X-Customer-Id: $CUSTOMER")
 echo "$me" | grep -q '"accountId":"ACC-5501"' && pass "Home screen data through the web app: $(echo "$me" | head -c 160)…" \
   || fail "Unexpected /v1/me through the web app: $me"
 
+echo "14. Staff review: clearing Asha's case unfreezes her, unblocks her card and releases the held £5"
+q=$(curl -sf "$BFF/v1/staff/queue" -H "X-Staff-User: smoke-reviewer")
+SAGA=$(echo "$q" | grep -o "\"sagaId\":\"[^\"]*\",\"customerId\":\"$ASHA\"" | head -1 | sed 's/"sagaId":"\([^"]*\)".*/\1/')
+[ -n "$SAGA" ] && pass "Asha's case is in the review queue (saga $SAGA)" || fail "No open review for Asha: $q"
+curl -sf -X POST "$BFF/v1/staff/reviews/$SAGA" -H 'Content-Type: application/json' -H "X-Staff-User: smoke-reviewer" \
+  -d '{"decision":"CLEAR","note":"False positive (smoke test)"}' >/dev/null
+for _ in $(seq 1 15); do
+  status=$(curl -sf "$MAPPING/v1/customers/$ASHA" | field status)
+  [ "$status" = "ACTIVE" ] && break
+  sleep 1
+done
+[ "$status" = "ACTIVE" ] && pass "Asha is ACTIVE again" || fail "Expected ACTIVE after CLEAR, got $status"
+for _ in $(seq 1 15); do
+  list=$(curl -sf "$BFF/v1/payments" -H "X-Customer-Id: $ASHA")
+  echo "$list" | grep -q '"status":"FLAGGED"' || break
+  sleep 1
+done
+echo "$list" | grep -q '"status":"FLAGGED"' && fail "Held payment was not released: $list" || pass "Held £5 released (no FLAGGED payments left)"
+for _ in $(seq 1 10); do
+  tap=$(curl -sf -X POST "$SIM/thredd/v1/sim/card-tap" -H 'Content-Type: application/json' \
+    -d "{\"token\":\"$ASHA_TOKEN\",\"amount\":\"1.00\",\"merchant\":\"Corner Shop\"}")
+  echo "$tap" | grep -q '"decision":"APPROVE"' && break
+  sleep 2
+done
+echo "$tap" | grep -q '"decision":"APPROVE"' && pass "Asha's card works again" || fail "Expected APPROVE after CLEAR, got $tap"
+
 echo
 echo "All checks passed. Search the logs for $CORR to follow the payment across services."

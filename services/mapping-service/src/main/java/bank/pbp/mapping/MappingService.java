@@ -142,6 +142,27 @@ public class MappingService {
         return after;
     }
 
+    public List<Customer> customersByStatus(String status) {
+        return repo.customersByStatus(status);
+    }
+
+    /** Card or account status change and/or metadata merge (card controls, LLD section 4 PATCH /refs). */
+    @Transactional
+    public ExternalRef updateRef(UUID refId, String status, Map<String, Object> metadata, String actor) {
+        ExternalRef before = repo.findRef(refId).orElseThrow(() -> notFound("link " + refId));
+        repo.updateRef(refId, status, metadata == null ? null : json(metadata));
+        ExternalRef after = repo.findRef(refId).orElseThrow();
+        repo.audit(after.customerId(), refId, "REF_UPDATED", json(before), json(after), actor, correlationId());
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("customerId", after.customerId().toString());
+        data.put("refId", refId.toString());
+        data.put("from", before.status());
+        data.put("to", after.status());
+        data.put("metadata", metadata);
+        publish("ref.status_changed", after.customerId(), data);
+        return after;
+    }
+
     public Map<String, Object> resolve(String system, String entityType, String externalId) {
         ExternalRef ref = repo.findRef(system, entityType, externalId)
                 .orElseThrow(() -> notFound(system + " " + entityType + " " + externalId));

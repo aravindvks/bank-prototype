@@ -96,6 +96,27 @@ public class MappingRepository {
                 .list();
     }
 
+    public java.util.List<Customer> customersByStatus(String status) {
+        return jdbc.sql("""
+                        SELECT customer_id, customer_type, status, kyc_status, kyc_valid_until, risk_rating,
+                               created_at, version
+                        FROM customer WHERE status = :status ORDER BY created_at DESC LIMIT 100""")
+                .param("status", status)
+                .query(Customer.class)
+                .list();
+    }
+
+    /** Status change and/or metadata merge on a link. Returns rows changed. */
+    public int updateRef(UUID refId, String status, String metadataJson) {
+        return jdbc.sql("""
+                        UPDATE external_ref
+                        SET status = COALESCE(:status, status),
+                            metadata = COALESCE(metadata, '{}'::jsonb) || COALESCE(CAST(:metadata AS jsonb), '{}'::jsonb)
+                        WHERE ref_id = :id""")
+                .param("status", status).param("metadata", metadataJson).param("id", refId)
+                .update();
+    }
+
     public void audit(UUID customerId, UUID refId, String action, String beforeJson, String afterJson,
                       String actor, String correlationId) {
         jdbc.sql("""

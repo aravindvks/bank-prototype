@@ -101,15 +101,19 @@ public class OnboardingListeners {
         String customerId = str(e.data().get("customerId"));
         String correlationId = e.correlationId() != null ? e.correlationId()
                 : bank.pbp.common.ids.Ids.newCorrelationId(bank.pbp.common.ids.JourneyType.CUS);
+        String vendorEventId = str(e.data().get("vendorEventId"));
+        // One saga per screening event: a repeated webhook finds the same workflow.
+        String sagaId = java.util.UUID.nameUUIDFromBytes(("compliance:" + vendorEventId)
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
         ComplianceWorkflow wf = temporal.newWorkflowStub(ComplianceWorkflow.class, WorkflowOptions.newBuilder()
                 .setTaskQueue(TaskQueues.COMPLIANCE)
-                .setWorkflowId("compliance-" + str(e.data().get("vendorEventId")))
+                .setWorkflowId("compliance-" + sagaId)
                 .build());
         try {
-            WorkflowClient.start(wf::freeze, customerId, correlationId, "Atfinity rescreening hit");
-            log.info("workflow.started workflowId=compliance-{} customerId={}", e.data().get("vendorEventId"), customerId);
+            WorkflowClient.start(wf::freeze, sagaId, customerId, correlationId, "Atfinity rescreening hit");
+            log.info("workflow.started workflowId=compliance-{} customerId={}", sagaId, customerId);
         } catch (WorkflowExecutionAlreadyStarted duplicate) {
-            log.info("workflow.duplicate workflowId=compliance-{}", e.data().get("vendorEventId"));
+            log.info("workflow.duplicate workflowId=compliance-{}", sagaId);
         }
     }
 
