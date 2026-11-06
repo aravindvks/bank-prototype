@@ -3,10 +3,16 @@ package bank.pbp.orchestrator.temporal;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import java.net.http.HttpClient;
+import java.time.Duration;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
-/** HTTP clients for the services the sagas call. Correlation headers are added by platform-common. */
+/**
+ * HTTP clients for the services the sagas call. Correlation headers are added by platform-common.
+ * Uses the JDK HttpClient: the older HttpURLConnection-based factory rejects PATCH, which the
+ * mapping service uses for status and KYC changes.
+ */
 @Configuration
 public class InternalClients {
 
@@ -31,9 +37,12 @@ public class InternalClients {
     }
 
     private static RestClient build(RestClient.Builder b, String url) {
-        SimpleClientHttpRequestFactory f = new SimpleClientHttpRequestFactory();
-        f.setConnectTimeout(1000);
-        f.setReadTimeout(12_000);
+        HttpClient http = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(1))
+                .build();
+        JdkClientHttpRequestFactory f = new JdkClientHttpRequestFactory(http);
+        f.setReadTimeout(Duration.ofSeconds(12));
         return b.clone().baseUrl(url).requestFactory(f).build();
     }
 }

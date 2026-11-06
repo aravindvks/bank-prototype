@@ -80,6 +80,10 @@ done
 [ "$state" = "COMPLETED" ] && pass "Onboarding COMPLETED: $st" || fail "Onboarding ended as '$state': $st"
 ASHA=$(echo "$st" | field customerId)
 ASHA_ACC=$(echo "$st" | field accountId)
+cust=$(curl -sf "$MAPPING/v1/customers/$ASHA")
+echo "$cust" | grep -q '"status":"ACTIVE"' && echo "$cust" | grep -q '"kycStatus":"VALID"' \
+  && pass "Customer ACTIVE with KYC VALID (orchestrator PATCH calls to the mapping service work)" \
+  || fail "Expected ACTIVE and KYC VALID, got $cust"
 ASHA_TOKEN=$(curl -sf "$MAPPING/v1/customers/$ASHA/graph" | grep -o '"entityType":"CARD","externalId":"[^"]*"' | sed 's/.*"externalId":"\([^"]*\)"/\1/')
 [ -n "$ASHA_TOKEN" ] && pass "Mapping holds Asha's KYC case, party, account $ASHA_ACC and card $ASHA_TOKEN" \
   || fail "No card linked for customer $ASHA"
