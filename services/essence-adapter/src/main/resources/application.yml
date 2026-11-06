@@ -1,0 +1,25 @@
+server:
+  port: ${PORT:8084}
+spring:
+  application:
+    name: essence-adapter
+pbp:
+  correlation:
+    default-type: TXN
+vendor:
+  essence:
+    # sandbox or simulator (LLD section 13). Phase 0 supports simulator only.
+    mode: ${ESSENCE_MODE:simulator}
+    base-url: ${ESSENCE_BASE_URL:http://localhost:8090/essence/v1}
+    timeout:
+      connect-ms: 1000
+      ehi-ms: 2000
+      standard-ms: 10000
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+logging:
+  pattern:
+    level: "%5p [%X{correlationId:-}]"

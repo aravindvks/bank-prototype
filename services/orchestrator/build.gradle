@@ -1,0 +1,10 @@
+// Orchestrator: Temporal workflows that glue the vendors together for every journey (LLD section 3).
+dependencies {
+    implementation "io.temporal:temporal-sdk:${rootProject.temporalVersion}"
+    implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+    implementation 'org.springframework.kafka:spring-kafka'
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-database-postgresql'
+    runtimeOnly 'org.postgresql:postgresql'
+    testImplementation "io.temporal:temporal-testing:${rootProject.temporalVersion}"
+}

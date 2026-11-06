@@ -1,0 +1,34 @@
+server:
+  port: ${PORT:8080}
+spring:
+  application:
+    name: bff
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:pbp}?currentSchema=bff
+    username: ${DB_USER:pbp}
+    password: ${DB_PASSWORD:pbp}
+  flyway:
+    schemas: bff
+    default-schema: bff
+    create-schemas: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+pbp:
+  correlation:
+    default-type: TXN
+  bank:
+    sort-code: ${BANK_SORT_CODE:200001}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+logging:
+  pattern:
+    level: "%5p [%X{correlationId:-}]"

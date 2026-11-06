@@ -1,0 +1,21 @@
+server:
+  port: ${PORT:8086}
+spring:
+  application:
+    name: atfinity-adapter
+pbp:
+  correlation:
+    default-type: ONB
+vendor:
+  atfinity:
+    mode: ${ATFINITY_MODE:simulator}
+    base-url: ${ATFINITY_BASE_URL:http://localhost:8090/atfinity/v1}
+    timeout-ms: 10000
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+logging:
+  pattern:
+    level: "%5p [%X{correlationId:-}]"

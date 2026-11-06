@@ -1,0 +1,2 @@
+// thredd-adapter: stable internal contract for the orchestrator; translates to the vendor (LLD section 6).
+// Phase 0 calls the vendor simulator. Webhooks, retries and circuit breakers arrive in Phase 1.

@@ -1,0 +1,19 @@
+plugins {
+    // Downloads a Java 21 toolchain if the machine has a different JDK.
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
+}
+
+rootProject.name = 'bank-prototype'
+
+include 'libs:platform-common'
+
+include 'services:bff'
+include 'services:orchestrator'
+include 'services:mapping-service'
+include 'services:ehi-responder'
+include 'services:essence-adapter'
+include 'services:thredd-adapter'
+include 'services:atfinity-adapter'
+include 'services:recon-service'
+
+include 'simulators:vendor-simulator'

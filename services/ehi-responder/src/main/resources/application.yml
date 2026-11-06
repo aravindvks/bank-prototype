@@ -1,0 +1,39 @@
+server:
+  port: ${PORT:8083}
+spring:
+  application:
+    name: ehi-responder
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:pbp}?currentSchema=ehi
+    username: ${DB_USER:pbp}
+    password: ${DB_PASSWORD:pbp}
+  flyway:
+    schemas: ehi
+    default-schema: ehi
+    create-schemas: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+pbp:
+  correlation:
+    default-type: TXN
+  ehi:
+    mapping-url: ${MAPPING_URL:http://localhost:8082}
+    essence-adapter-url: ${ESSENCE_ADAPTER_URL:http://localhost:8084}
+    # Lookup budget until the OCI Cache path lands in Phase 1.
+    lookup-timeout-ms: 300
+    # Essence fast lane: tune below Thredd's limit (LLD section 13).
+    essence-timeout-ms: 2000
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+logging:
+  pattern:
+    level: "%5p [%X{correlationId:-}]"

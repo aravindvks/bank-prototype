@@ -1,0 +1,23 @@
+server:
+  port: ${PORT:8085}
+spring:
+  application:
+    name: thredd-adapter
+pbp:
+  correlation:
+    default-type: CRD
+vendor:
+  thredd:
+    mode: ${THREDD_MODE:simulator}
+    base-url: ${THREDD_BASE_URL:http://localhost:8090/thredd/v1}
+    timeout-ms: 10000
+    # Product and programme IDs come from configuration, never code (LLD section 6).
+    product-id: ${THREDD_PRODUCT_ID:PBP-UK-DEBIT-01}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+logging:
+  pattern:
+    level: "%5p [%X{correlationId:-}]"

@@ -1,0 +1,176 @@
+# Banking Platform Prototype — local stack.
+#   Infrastructure only:   docker compose -f infra/compose/docker-compose.yml up -d
+#   Everything:            make up   (builds the jars first, then starts the "apps" profile)
+name: pbp
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: pbp
+      POSTGRES_USER: pbp
+      POSTGRES_PASSWORD: pbp
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pbp -d pbp"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  kafka:
+    image: apache/kafka:3.8.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:29092,EXTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    ports: ["9092:9092"]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:29092 --list >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  # Creates the 9 topics and their dead-letter topics (LLD section 9), then exits.
+  kafka-topics:
+    image: apache/kafka:3.8.0
+    depends_on:
+      kafka: { condition: service_healthy }
+    volumes:
+      - ./create-topics.sh:/create-topics.sh:ro
+    entrypoint: ["/bin/bash", "/create-topics.sh"]
+    environment:
+      BOOTSTRAP: kafka:29092
+
+  redis:
+    image: redis:7.4-alpine
+    ports: ["6379:6379"]
+
+  temporal:
+    image: temporalio/auto-setup:1.25.1
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: pbp
+      POSTGRES_PWD: pbp
+      POSTGRES_SEEDS: postgres
+      DEFAULT_NAMESPACE: pbp-local
+    ports: ["7233:7233"]
+
+  temporal-ui:
+    image: temporalio/ui:2.31.2
+    depends_on: [temporal]
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports: ["8233:8080"]
+
+  # ---------- Application services (profile "apps") ----------
+  vendor-simulator:
+    profiles: ["apps"]
+    build: &app-build
+      context: ../..
+      dockerfile: infra/compose/Dockerfile
+      args: { MODULE: simulators/vendor-simulator, JAR: vendor-simulator.jar }
+    ports: ["8090:8090"]
+
+  mapping-service:
+    profiles: ["apps"]
+    build:
+      <<: *app-build
+      args: { MODULE: services/mapping-service, JAR: mapping-service.jar }
+    environment: &app-env
+      DB_HOST: postgres
+      KAFKA_BOOTSTRAP: kafka:29092
+      TEMPORAL_TARGET: temporal:7233
+      ESSENCE_BASE_URL: http://vendor-simulator:8090/essence/v1
+      THREDD_BASE_URL: http://vendor-simulator:8090/thredd/v1
+      ATFINITY_BASE_URL: http://vendor-simulator:8090/atfinity/v1
+      ESSENCE_ADAPTER_URL: http://essence-adapter:8084
+      MAPPING_URL: http://mapping-service:8082
+    depends_on: &app-deps
+      postgres: { condition: service_healthy }
+      kafka-topics: { condition: service_completed_successfully }
+    ports: ["8082:8082"]
+
+  essence-adapter:
+    profiles: ["apps"]
+    build:
+      <<: *app-build
+      args: { MODULE: services/essence-adapter, JAR: essence-adapter.jar }
+    environment: *app-env
+    depends_on: [vendor-simulator]
+    ports: ["8084:8084"]
+
+  thredd-adapter:
+    profiles: ["apps"]
+    build:
+      <<: *app-build
+      args: { MODULE: services/thredd-adapter, JAR: thredd-adapter.jar }
+    environment: *app-env
+    depends_on: [vendor-simulator]
+    ports: ["8085:8085"]
+
+  atfinity-adapter:
+    profiles: ["apps"]
+    build:
+      <<: *app-build
+      args: { MODULE: services/atfinity-adapter, JAR: atfinity-adapter.jar }
+    environment: *app-env
+    depends_on: [vendor-simulator]
+    ports: ["8086:8086"]
+
+  bff:
+    profiles: ["apps"]
+    build:
+      <<: *app-build
+      args: { MODULE: services/bff, JAR: bff.jar }
+    environment: *app-env
+    depends_on: *app-deps
+    ports: ["8080:8080"]
+
+  orchestrator:
+    profiles: ["apps"]
+    build:
+      <<: *app-build
+      args: { MODULE: services/orchestrator, JAR: orchestrator.jar }
+    environment: *app-env
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka-topics: { condition: service_completed_successfully }
+      temporal: { condition: service_started }
+    restart: on-failure
+    ports: ["8081:8081"]
+
+  ehi-responder:
+    profiles: ["apps"]
+    build:
+      <<: *app-build
+      args: { MODULE: services/ehi-responder, JAR: ehi-responder.jar }
+    environment: *app-env
+    depends_on: *app-deps
+    ports: ["8083:8083"]
+
+  recon-service:
+    profiles: ["apps"]
+    build:
+      <<: *app-build
+      args: { MODULE: services/recon-service, JAR: recon-service.jar }
+    environment: *app-env
+    depends_on:
+      postgres: { condition: service_healthy }
+    ports: ["8087:8087"]
+
+volumes:
+  pgdata:

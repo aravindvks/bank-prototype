@@ -1,0 +1,73 @@
+// Banking Platform Prototype — root build.
+// Every module is Java 21 and uses the Spring Boot BOM; deployable modules also apply the Boot plugin.
+plugins {
+    id 'org.springframework.boot' version '3.3.5' apply false
+    id 'io.spring.dependency-management' version '1.1.6' apply false
+}
+
+ext {
+    temporalVersion = '1.25.1'
+}
+
+allprojects {
+    group = 'bank.pbp'
+    version = '0.1.0-SNAPSHOT'
+    repositories {
+        mavenCentral()
+    }
+}
+
+subprojects { sub ->
+    // Folder nodes such as :services are not Java modules.
+    if (!sub.file('src').exists()) {
+        return
+    }
+
+    apply plugin: 'java'
+    apply plugin: 'io.spring.dependency-management'
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(21)
+        }
+    }
+
+    dependencyManagement {
+        imports {
+            mavenBom org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES
+        }
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+        options.compilerArgs << '-parameters'
+    }
+
+    tasks.withType(Test).configureEach {
+        useJUnitPlatform()
+    }
+
+    dependencies {
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
+
+    // Services and simulators are runnable Spring Boot apps.
+    if (sub.path.startsWith(':services:') || sub.path.startsWith(':simulators:')) {
+        apply plugin: 'org.springframework.boot'
+
+        dependencies {
+            implementation project(':libs:platform-common')
+            implementation 'org.springframework.boot:spring-boot-starter-web'
+            implementation 'org.springframework.boot:spring-boot-starter-actuator'
+            implementation 'org.springframework.boot:spring-boot-starter-validation'
+            testImplementation 'org.springframework.boot:spring-boot-starter-test'
+        }
+
+        bootJar {
+            archiveFileName = "${sub.name}.jar"
+        }
+        jar {
+            enabled = false
+        }
+    }
+}

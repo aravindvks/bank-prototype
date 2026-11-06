@@ -1,0 +1,26 @@
+server:
+  port: ${PORT:8087}
+spring:
+  application:
+    name: recon-service
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:pbp}?currentSchema=recon
+    username: ${DB_USER:pbp}
+    password: ${DB_PASSWORD:pbp}
+  flyway:
+    schemas: recon
+    default-schema: recon
+    create-schemas: true
+pbp:
+  correlation:
+    default-type: REC
+  recon:
+    cron: "0 0 2 * * *"
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+logging:
+  pattern:
+    level: "%5p [%X{correlationId:-}]"
