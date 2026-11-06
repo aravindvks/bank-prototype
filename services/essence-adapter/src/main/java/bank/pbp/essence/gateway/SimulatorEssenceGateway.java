@@ -114,6 +114,17 @@ public class SimulatorEssenceGateway implements EssenceGateway {
         return new PaymentSubmission(str(r.get("finastraRef")), str(r.get("status")), str(r.get("scheme")));
     }
 
+    @Override
+    public java.util.List<Posting> postings(String date) {
+        java.util.List<Map<String, Object>> rows = VendorErrors.call("essence", "postings.list", () -> standard.get()
+                .uri(u -> u.path("/postings").queryParam("date", date).build())
+                .retrieve()
+                .body(new ParameterizedTypeReference<java.util.List<Map<String, Object>>>() {
+                }));
+        return rows.stream().map(r -> new Posting(str(r.get("postingId")), str(r.get("date")), str(r.get("accountId")),
+                str(r.get("amount")), str(r.get("ref")), str(r.get("type")))).toList();
+    }
+
     private static Map<String, Object> post(RestClient client, String operation, String path,
                                             Map<String, Object> body, String scenario) {
         return VendorErrors.call("essence", operation, () -> client.post()

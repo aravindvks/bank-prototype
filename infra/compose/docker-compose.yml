@@ -107,6 +107,8 @@ services:
       THREDD_ADAPTER_URL: http://thredd-adapter:8085
       ORCHESTRATOR_URL: http://orchestrator:8081
       REDIS_HOST: redis
+      EHI_URL: http://ehi-responder:8083
+      RECON_URL: http://recon-service:8087
     depends_on: &app-deps
       postgres: { condition: service_healthy }
       kafka-topics: { condition: service_completed_successfully }

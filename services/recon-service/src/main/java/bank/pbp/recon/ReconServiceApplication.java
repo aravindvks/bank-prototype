@@ -1,15 +1,9 @@
 package bank.pbp.recon;
 
-import bank.pbp.common.correlation.Correlation;
-import bank.pbp.common.ids.Ids;
-import bank.pbp.common.ids.JourneyType;
 import java.time.LocalDate;
-import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -17,24 +11,20 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * Recon service skeleton. Phase 0 creates the nightly run record per source so the schedule,
- * schema and run history are in place; the matching rules in LLD section 8 (Spring Batch,
- * 1,000-line chunks) arrive in Phase 2.
- */
+/** Recon service (LLD section 8): nightly at 02:00 UTC for the previous day, or on demand. */
 @SpringBootApplication
 @EnableScheduling
 @RestController
 public class ReconServiceApplication {
 
-    private static final Logger log = LoggerFactory.getLogger(ReconServiceApplication.class);
-    private static final List<String> SOURCES = List.of("THREDD_SETTLEMENT", "ESSENCE_POSTINGS", "PAYMENTS");
-
+    private final ReconEngine engine;
     private final JdbcClient jdbc;
 
-    public ReconServiceApplication(JdbcClient jdbc) {
+    public ReconServiceApplication(ReconEngine engine, JdbcClient jdbc) {
+        this.engine = engine;
         this.jdbc = jdbc;
     }
 
@@ -44,42 +34,30 @@ public class ReconServiceApplication {
 
     @Scheduled(cron = "${pbp.recon.cron}", zone = "UTC")
     public void nightly() {
-        run(LocalDate.now(ZoneOffset.UTC).minusDays(1));
+        engine.run(LocalDate.now(ZoneOffset.UTC).minusDays(1));
     }
 
-    /** Manual trigger for demos and tests. */
+    /** Demo and operations trigger; defaults to today so a demo can reconcile what just happened. */
     @PostMapping("/v1/recon/runs")
-    public Map<String, Object> trigger() {
-        return Map.of("runs", run(LocalDate.now(ZoneOffset.UTC).minusDays(1)));
+    public Map<String, Object> trigger(@RequestParam(required = false) LocalDate date) {
+        return engine.run(date == null ? LocalDate.now(ZoneOffset.UTC) : date);
     }
 
     @GetMapping("/v1/recon/runs")
     public List<Map<String, Object>> runs() {
-        return jdbc.sql("SELECT run_id, source, run_date, status, started_at FROM recon_run ORDER BY started_at DESC LIMIT 50")
-                .query()
-                .listOfRows();
+        return jdbc.sql("""
+                        SELECT run_id::text AS "runId", source, run_date::text AS "runDate", lines_total AS "linesTotal",
+                               matched, exceptions, status, ended_at::text AS "endedAt"
+                        FROM recon_run ORDER BY ended_at DESC NULLS LAST LIMIT 30""")
+                .query().listOfRows();
     }
 
-    private int run(LocalDate runDate) {
-        Correlation.set(Ids.newCorrelationId(JourneyType.REC));
-        try {
-            int created = 0;
-            for (String source : SOURCES) {
-                created += jdbc.sql("""
-                                INSERT INTO recon_run (run_id, source, run_date, lines_total, matched, exceptions,
-                                                       status, started_at, ended_at)
-                                VALUES (:id, :source, :runDate, 0, 0, 0, 'NOT_IMPLEMENTED', :now, :now)
-                                ON CONFLICT (source, run_date) DO NOTHING""")
-                        .param("id", Ids.uuidV7())
-                        .param("source", source)
-                        .param("runDate", runDate)
-                        .param("now", OffsetDateTime.now(ZoneOffset.UTC))
-                        .update();
-            }
-            log.info("recon.run runDate={} created={}", runDate, created);
-            return created;
-        } finally {
-            Correlation.clear();
-        }
+    @GetMapping("/v1/recon/exceptions")
+    public List<Map<String, Object>> exceptions(@RequestParam(defaultValue = "OPEN") String status) {
+        return jdbc.sql("""
+                        SELECT exception_id::text AS "exceptionId", type, source_ref AS "sourceRef", amount::text AS amount,
+                               owner_queue AS "ownerQueue", status, resolution, run_date::text AS "runDate"
+                        FROM recon_exception WHERE status = :status ORDER BY run_date DESC, type LIMIT 200""")
+                .param("status", status).query().listOfRows();
     }
 }

@@ -27,9 +27,29 @@ import org.springframework.web.client.RestClient;
 public class StaffController {
 
     private final RestClient orchestrator;
+    private final RestClient recon;
 
-    public StaffController(RestClient.Builder builder, @Value("${pbp.services.orchestrator-url}") String url) {
+    public StaffController(RestClient.Builder builder, @Value("${pbp.services.orchestrator-url}") String url,
+                           @Value("${pbp.services.recon-url}") String reconUrl) {
         this.orchestrator = builder.clone().baseUrl(url).build();
+        this.recon = builder.clone().baseUrl(reconUrl).build();
+    }
+
+    @GetMapping("/recon/runs")
+    public JsonNode reconRuns(@RequestHeader("X-Staff-User") String staff) {
+        return VendorErrors.call("recon", "runs.list", () -> recon.get().uri("/v1/recon/runs").retrieve().body(JsonNode.class));
+    }
+
+    @GetMapping("/recon/exceptions")
+    public JsonNode reconExceptions(@RequestHeader("X-Staff-User") String staff) {
+        return VendorErrors.call("recon", "exceptions.list", () -> recon.get().uri("/v1/recon/exceptions")
+                .retrieve().body(JsonNode.class));
+    }
+
+    @PostMapping("/recon/runs")
+    public JsonNode reconRun(@RequestHeader("X-Staff-User") String staff) {
+        return VendorErrors.call("recon", "runs.trigger", () -> recon.post().uri("/v1/recon/runs")
+                .retrieve().body(JsonNode.class));
     }
 
     @GetMapping("/queue")

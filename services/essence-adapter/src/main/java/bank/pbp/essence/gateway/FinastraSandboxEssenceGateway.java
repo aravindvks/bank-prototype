@@ -60,4 +60,9 @@ public class FinastraSandboxEssenceGateway implements EssenceGateway {
     public PaymentSubmission submitPayment(PaymentInstruction instruction, String scenario) {
         throw notBuilt("payments.submit");
     }
+
+    @Override
+    public java.util.List<Posting> postings(String date) {
+        throw notBuilt("postings.list");
+    }
 }

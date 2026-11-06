@@ -236,5 +236,16 @@ kill $CURL_PID 2>/dev/null || true
 grep -q "payment.received" "$EVENTS" && pass "Pushed over Server-Sent Events: $(grep -o '"type":"payment.received"[^}]*' "$EVENTS" | head -1 | head -c 120)…" \
   || fail "No payment.received event on the stream: $(head -c 400 "$EVENTS")"
 
+echo "17. Reconciliation: today's payments and card settlements all match Essence; a rogue posting is caught"
+curl -sf -X POST "$SIM/essence/v1/sim/rogue-posting" -H 'Content-Type: application/json' -d '{"accountId":"ACC-5510","amount":"7.77"}' >/dev/null
+rec=$(curl -sf -X POST "$BFF/v1/staff/recon/runs" -H "X-Staff-User: smoke-reviewer")
+echo "$rec" | grep -q '"source":"PAYMENTS","matched":[1-9][0-9]*,"exceptions":0' && pass "PAYMENTS: all matched ($(echo "$rec" | grep -o '"source":"PAYMENTS"[^}]*'))" \
+  || fail "Payments did not reconcile cleanly: $rec"
+echo "$rec" | grep -q '"source":"CARDS","matched":[1-9][0-9]*,"exceptions":0' && pass "CARDS: all matched ($(echo "$rec" | grep -o '"source":"CARDS"[^}]*'))" \
+  || fail "Card settlements did not reconcile cleanly: $rec"
+exc=$(curl -sf "$BFF/v1/staff/recon/exceptions" -H "X-Staff-User: smoke-reviewer")
+echo "$exc" | grep -q '"type":"MISSING_IN_SOURCE","sourceRef":"ROGUE-' && pass "Rogue Essence posting reported as MISSING_IN_SOURCE" \
+  || fail "Rogue posting not reported: $exc"
+
 echo
 echo "All checks passed. Search the logs for $CORR to follow the payment across services."

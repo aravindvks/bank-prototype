@@ -16,6 +16,10 @@ pbp:
     default-type: REC
   recon:
     cron: "0 0 2 * * *"
+  services:
+    essence-adapter-url: ${ESSENCE_ADAPTER_URL:http://localhost:8084}
+    orchestrator-url: ${ORCHESTRATOR_URL:http://localhost:8081}
+    ehi-url: ${EHI_URL:http://localhost:8083}
 management:
   endpoints:
     web:

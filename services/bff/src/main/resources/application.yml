@@ -31,6 +31,7 @@ pbp:
     orchestrator-url: ${ORCHESTRATOR_URL:http://localhost:8081}
     mapping-url: ${MAPPING_URL:http://localhost:8082}
     essence-adapter-url: ${ESSENCE_ADAPTER_URL:http://localhost:8084}
+    recon-url: ${RECON_URL:http://localhost:8087}
 management:
   endpoints:
     web:

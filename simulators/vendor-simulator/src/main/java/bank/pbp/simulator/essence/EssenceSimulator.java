@@ -39,6 +39,8 @@ public class EssenceSimulator {
     private final Map<String, Account> accounts = new ConcurrentHashMap<>();
     private final Map<String, Hold> holds = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Object>> byRequestId = new ConcurrentHashMap<>();
+    /** Every posting, as Essence would report them for reconciliation (GET /postings?date=). */
+    private final List<Map<String, Object>> postings = new java.util.concurrent.CopyOnWriteArrayList<>();
     private final WebhookSender webhooks;
     private final String webhookUrl;
 
@@ -52,6 +54,7 @@ public class EssenceSimulator {
         accounts.clear();
         holds.clear();
         byRequestId.clear();
+        postings.clear();
         for (Account a : List.of(
                 new Account("ACC-5501", "41550123", "Priya Shah", "1000.00"),
                 new Account("ACC-5510", "41550198", "Ravi Kumar", "800.00"),
@@ -149,7 +152,9 @@ public class EssenceSimulator {
         Account a = accounts.get(h.accountId);
         BigDecimal amount = req.get("amount") == null ? h.amount : new BigDecimal(String.valueOf(req.get("amount")));
         a.ledger = a.ledger.subtract(amount);
-        return ResponseEntity.ok(Map.of("postingRef", "PST-" + shortId(), "amount", amount.toPlainString()));
+        String postingRef = "PST-" + shortId();
+        post(a.id, amount.negate(), postingRef, "CARD_PRESENTMENT");
+        return ResponseEntity.ok(Map.of("postingRef", postingRef, "amount", amount.toPlainString()));
     }
 
     @DeleteMapping("/holds/{holdId}")
@@ -184,6 +189,8 @@ public class EssenceSimulator {
         }
         debit.ledger = debit.ledger.subtract(amount);
         credit.get().ledger = credit.get().ledger.add(amount);
+        post(debit.id, amount.negate(), req.clientRequestId(), "TRANSFER_OUT");
+        post(credit.get().id, amount, req.clientRequestId(), "TRANSFER_IN");
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("postingRef", "PST-" + shortId());
         body.put("status", "POSTED");
@@ -219,6 +226,7 @@ public class EssenceSimulator {
             return error(HttpStatus.UNPROCESSABLE_ENTITY, "INSUFFICIENT_FUNDS", "Available balance is below the amount");
         }
         debit.ledger = debit.ledger.subtract(amount);
+        post(debit.id, amount.negate(), String.valueOf(req.get("endToEndId")), "PAYMENT_OUT");
         String finastraRef = "FIN-" + shortId();
         String creditorSortCode = String.valueOf(req.get("creditorSortCode"));
         boolean reject = "scheme-reject".equals(scenario) || creditorSortCode.startsWith("99");
@@ -237,6 +245,7 @@ public class EssenceSimulator {
                     "AC01 Incorrect account number"), 2000);
             synchronized (this) {
                 debit.ledger = debit.ledger.add(amount);
+                post(debit.id, amount, endToEndId, "PAYMENT_RETURN");
             }
         } else {
             webhooks.send(webhookUrl, statusEvent(finastraRef, endToEndId, scheme, "COMPLETED", null), 3000);
@@ -268,10 +277,12 @@ public class EssenceSimulator {
         }
         BigDecimal amount = new BigDecimal(String.valueOf(req.getOrDefault("amount", "20.00")));
         a.ledger = a.ledger.add(amount);
+        String inRef = "FIN-IN-" + shortId();
+        post(a.id, amount, inRef, "PAYMENT_IN");
         Map<String, Object> e = new LinkedHashMap<>();
         e.put("eventId", "EVT-" + shortId());
         e.put("type", "credit.received");
-        e.put("finastraRef", "FIN-IN-" + shortId());
+        e.put("finastraRef", inRef);
         e.put("scheme", "FPS");
         e.put("creditAccountId", a.id);
         e.put("amount", amount.toPlainString());
@@ -281,6 +292,34 @@ public class EssenceSimulator {
         e.put("reference", String.valueOf(req.getOrDefault("reference", "Payment")));
         webhooks.send(webhookUrl, e, 200);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(e);
+    }
+
+    // ---------- postings (reconciliation source) ----------
+
+    @GetMapping("/postings")
+    public List<Map<String, Object>> postings(@org.springframework.web.bind.annotation.RequestParam String date) {
+        return postings.stream().filter(p -> date.equals(p.get("date"))).toList();
+    }
+
+    /** Demo control: a posting nobody at the bank asked for, so reconciliation has something to find. */
+    @PostMapping("/sim/rogue-posting")
+    public synchronized Map<String, Object> rogue(@RequestBody Map<String, Object> req) {
+        Account a = accounts.get(String.valueOf(req.getOrDefault("accountId", "ACC-5501")));
+        BigDecimal amount = new BigDecimal(String.valueOf(req.getOrDefault("amount", "7.77")));
+        a.ledger = a.ledger.subtract(amount);
+        return post(a.id, amount.negate(), "ROGUE-" + shortId(), "MANUAL_ADJUSTMENT");
+    }
+
+    private Map<String, Object> post(String accountId, BigDecimal signedAmount, String ref, String type) {
+        Map<String, Object> p = new LinkedHashMap<>();
+        p.put("postingId", "PST-" + shortId());
+        p.put("date", java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString());
+        p.put("accountId", accountId);
+        p.put("amount", signedAmount.toPlainString());
+        p.put("ref", ref);
+        p.put("type", type);
+        postings.add(p);
+        return p;
     }
 
     // ---------- helpers ----------

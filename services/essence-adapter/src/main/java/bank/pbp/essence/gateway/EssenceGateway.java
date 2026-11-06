@@ -34,6 +34,12 @@ public interface EssenceGateway {
     /** Outbound UK payment; Finastra chooses FPS, CHAPS or Bacs and reports status by webhook. */
     PaymentSubmission submitPayment(PaymentInstruction instruction, String scenario);
 
+    /** All postings for a business date (reconciliation, 30 s timeout per LLD). */
+    java.util.List<Posting> postings(String date);
+
+    record Posting(String postingId, String date, String accountId, String amount, String ref, String type) {
+    }
+
     record Party(String partyId) {
     }
 

@@ -104,6 +104,11 @@ public class EssenceController {
                 req.amount().currency(), req.reference(), req.endToEndId(), req.idempotencyKey()), scenario));
     }
 
+    @GetMapping("/postings")
+    public java.util.List<EssenceGateway.Posting> postings(@RequestParam String date) {
+        return timed("postings.list", () -> essence.postings(date));
+    }
+
     private static <T> T timed(String operation, java.util.function.Supplier<T> call) {
         long start = System.nanoTime();
         try {

@@ -24,6 +24,8 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
   const [search, setSearch] = useState('');
   const [journey, setJourney] = useState<Journey | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [runs, setRuns] = useState<Row[]>([]);
+  const [exceptions, setExceptions] = useState<Row[]>([]);
 
   const refresh = useCallback(async () => {
     try {
@@ -33,6 +35,12 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
       ]);
       setQueue(q);
       setSagas(s);
+      const [r, x] = await Promise.all([
+        staffFetch<Row[]>('/v1/staff/recon/runs', staff),
+        staffFetch<Row[]>('/v1/staff/recon/exceptions', staff),
+      ]);
+      setRuns(r);
+      setExceptions(x);
     } catch (err) {
       notify(err instanceof ApiError ? err.message : 'Cannot reach the bank');
     }
@@ -54,6 +62,16 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
       setTimeout(refresh, 1500);
     } catch (err) {
       notify(err instanceof ApiError ? err.message : 'Review failed');
+    }
+  };
+
+  const reconcile = async () => {
+    try {
+      await staffFetch('/v1/staff/recon/runs', staff, { method: 'POST' });
+      notify('Reconciliation run for today completed');
+      refresh();
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : 'Reconciliation failed');
     }
   };
 
@@ -136,6 +154,40 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
           ))}
         </section>
       </div>
+
+      <section className="panel stack">
+        <div className="row between">
+          <h2>Reconciliation</h2>
+          <button className="btn small primary" onClick={reconcile}>Run for today</button>
+        </div>
+        <p className="muted small">Every payment and card settlement the bank recorded, checked against Essence postings. Runs nightly at 02:00 UTC for the previous day.</p>
+        {!runs.length ? <p className="muted">No runs yet.</p> : (
+          <div className="scroll">
+            <table className="tx">
+              <tbody>
+                {runs.slice(0, 6).map((r) => (
+                  <tr key={r.runId}>
+                    <td><strong>{r.source}</strong><div className="meta">{r.runDate} · {fmt(r.endedAt)}</div></td>
+                    <td className="num">{r.matched} matched</td>
+                    <td><span className={`pill ${r.status === 'MATCHED' ? 'p-ok' : 'p-bad'}`}>{r.exceptions} exceptions</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {exceptions.length > 0 && (
+          <>
+            <h3>Open exceptions</h3>
+            {exceptions.map((x) => (
+              <div key={x.exceptionId} className="row between line">
+                <div><strong>{x.type?.replace(/_/g, ' ').toLowerCase()}</strong><div className="meta mono">{x.sourceRef} · {x.ownerQueue}</div></div>
+                <strong className="num">{gbp(x.amount)}</strong>
+              </div>
+            ))}
+          </>
+        )}
+      </section>
 
       <form className="panel stack" onSubmit={find}>
         <h2>Find a journey</h2>
