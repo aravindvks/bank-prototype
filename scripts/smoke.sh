@@ -9,6 +9,21 @@ EHI=${EHI:-http://localhost:8083}
 SIM=${SIM:-http://localhost:8090}
 WEB=${WEB:-http://localhost:3000}
 CONNECT=${CONNECT:-http://localhost:8088}
+KC=${KC:-http://localhost:8180}
+
+# Login: with Keycloak up, every call carries a bearer token (as the web app does);
+# otherwise the BFF runs with development headers.
+token() { curl -sf -X POST "$KC/realms/pbp/protocol/openid-connect/token" -d grant_type=password \
+  -d client_id=pbp-web -d "username=$1" -d "password=$2" | grep -o '"access_token":"[^"]*"' | sed 's/"access_token":"\(.*\)"/\1/'; }
+if curl -sf "$KC/realms/pbp" >/dev/null 2>&1; then
+  AUTH=1
+  STAFF_TOKEN=$(token aravind staff123); PRIYA_TOKEN=$(token priya priya123); ASHA_TOKEN=$(token asha asha123)
+  OPS_TOKEN=$(token ops ops123)
+  STAFF_H="Authorization: Bearer $STAFF_TOKEN"; ASHA_H0="Authorization: Bearer $ASHA_TOKEN"
+  [ -n "$STAFF_TOKEN" ] && [ -n "$PRIYA_TOKEN" ] && [ -n "$ASHA_TOKEN" ] || { echo "Could not sign in to Keycloak"; exit 1; }
+else
+  AUTH=0; STAFF_H="X-Staff-User: smoke-reviewer"; ASHA_H0="X-Smoke: 1"
+fi
 
 pass() { printf '  \033[32mPASS\033[0m %s\n' "$1"; }
 fail() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; exit 1; }
@@ -37,6 +52,14 @@ TOKEN="thr_tok_smoke$(date +%s)"
 curl -sf -X POST "$MAPPING/v1/customers/$CUSTOMER/refs" -H 'Content-Type: application/json' \
   -d "{\"system\":\"THREDD\",\"entityType\":\"CARD\",\"externalId\":\"$TOKEN\",\"parentRefId\":\"$ACCOUNT_REF\"}" >/dev/null
 pass "Linked card token $TOKEN to account ACC-5501"
+if [ "$AUTH" = 1 ]; then
+  curl -sf -X POST "$BFF/v1/staff/logins" -H 'Content-Type: application/json' -H "$STAFF_H" \
+    -d "{\"username\":\"priya\",\"customerId\":\"$CUSTOMER\"}" >/dev/null
+  PRIYA_H="Authorization: Bearer $PRIYA_TOKEN"
+  pass "Staff linked online banking login 'priya' to customer $CUSTOMER"
+else
+  PRIYA_H="X-Customer-Id: $CUSTOMER"
+fi
 
 echo "2. Card tap: £3.50 at a cafe (EHI responder)"
 auth=$(curl -sf -X POST "$EHI/ehi/v1/messages" -H 'Content-Type: application/json' \
@@ -48,13 +71,13 @@ before=$(curl -sf "$SIM/essence/v1/accounts/ACC-5510/balance" | field available)
 KEY=$(uuid)
 BODY='{"debtorAccount":"ACC-5501","creditor":{"name":"Ravi Kumar","sortCode":"200001","accountNumber":"41550198"},"amount":{"value":"25.00","currency":"GBP"},"purpose":"OTHER","remittanceInfo":"Smoke test","copResult":"MATCH"}'
 resp=$(curl -sf -X POST "$BFF/v1/payments" -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $KEY" -H "X-Customer-Id: $CUSTOMER" -d "$BODY")
+  -H "Idempotency-Key: $KEY" -H "$PRIYA_H" -d "$BODY")
 PAYMENT=$(echo "$resp" | field paymentId)
 CORR=$(echo "$resp" | field correlationId)
 [ -n "$PAYMENT" ] && pass "202 Accepted: payment $PAYMENT, correlation $CORR" || fail "No paymentId in $resp"
 
 replay=$(curl -sf -X POST "$BFF/v1/payments" -H 'Content-Type: application/json' \
-  -H "Idempotency-Key: $KEY" -H "X-Customer-Id: $CUSTOMER" -d "$BODY")
+  -H "Idempotency-Key: $KEY" -H "$PRIYA_H" -d "$BODY")
 [ "$(echo "$replay" | field paymentId)" = "$PAYMENT" ] && pass "Retry with the same Idempotency-Key returned the same payment" \
   || fail "Idempotency replay returned $replay"
 
@@ -68,18 +91,19 @@ done
   || fail "Ravi's balance is $after, expected $expected. Check the workflow in Temporal UI (http://localhost:8233)"
 
 echo "4. Onboarding: Asha signs up (BFF → Temporal → mapping → Atfinity → Essence → Thredd)"
-onb=$(curl -sf -X POST "$BFF/v1/onboarding" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuid)" \
+onb=$(curl -sf -X POST "$BFF/v1/onboarding" -H 'Content-Type: application/json' -H "$ASHA_H0" -H "Idempotency-Key: $(uuid)" \
   -d '{"customerType":"INDIVIDUAL","name":"Asha Patel","email":"asha@example.com"}')
 ONB=$(echo "$onb" | field onboardingId)
 [ -n "$ONB" ] && pass "202 Accepted: onboarding $ONB" || fail "No onboardingId in $onb"
 for _ in $(seq 1 45); do
-  st=$(curl -s "$BFF/v1/onboarding/$ONB")
+  st=$(curl -s "$BFF/v1/onboarding/$ONB" -H "$ASHA_H0")
   state=$(echo "$st" | field status)
   [ "$state" = "COMPLETED" ] || [ "$state" = "FAILED" ] || [ "$state" = "REJECTED" ] && break
   sleep 2
 done
 [ "$state" = "COMPLETED" ] && pass "Onboarding COMPLETED: $st" || fail "Onboarding ended as '$state': $st"
 ASHA=$(echo "$st" | field customerId)
+if [ "$AUTH" = 1 ]; then ASHA_H="Authorization: Bearer $ASHA_TOKEN"; else ASHA_H="X-Customer-Id: $ASHA"; fi
 ASHA_ACC=$(echo "$st" | field accountId)
 cust=$(curl -sf "$MAPPING/v1/customers/$ASHA")
 echo "$cust" | grep -q '"status":"ACTIVE"' && echo "$cust" | grep -q '"kycStatus":"VALID"' \
@@ -90,11 +114,11 @@ ASHA_TOKEN=$(curl -sf "$MAPPING/v1/customers/$ASHA/graph" | grep -o '"entityType
   || fail "No card linked for customer $ASHA"
 
 echo "5. Onboarding: a KYC rejection ends with the customer REJECTED"
-onb=$(curl -sf -X POST "$BFF/v1/onboarding" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuid)" \
+onb=$(curl -sf -X POST "$BFF/v1/onboarding" -H 'Content-Type: application/json' -H "$ASHA_H0" -H "Idempotency-Key: $(uuid)" \
   -d '{"customerType":"INDIVIDUAL","name":"Reject Test","email":"reject@example.com"}')
 ONB2=$(echo "$onb" | field onboardingId)
 for _ in $(seq 1 30); do
-  st=$(curl -s "$BFF/v1/onboarding/$ONB2"); state=$(echo "$st" | field status)
+  st=$(curl -s "$BFF/v1/onboarding/$ONB2" -H "$ASHA_H0"); state=$(echo "$st" | field status)
   [ "$state" = "REJECTED" ] || [ "$state" = "COMPLETED" ] || [ "$state" = "FAILED" ] && break
   sleep 2
 done
@@ -143,11 +167,11 @@ status=$(curl -sf "$MAPPING/v1/customers/$ASHA" | field status)
 
 echo "10. Other-bank payment: Priya pays £15 to Barclays (Finastra routes it and reports scheme status)"
 resp=$(curl -sf -X POST "$BFF/v1/payments" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuid)" \
-  -H "X-Customer-Id: $CUSTOMER" \
+  -H "$PRIYA_H" \
   -d '{"debtorAccount":"ACC-5501","creditor":{"name":"Arjun Mehta","sortCode":"040004","accountNumber":"12345678"},"amount":{"value":"15.00","currency":"GBP"},"remittanceInfo":"Dinner","copResult":"MATCH"}')
 OUT=$(echo "$resp" | field paymentId)
 for _ in $(seq 1 20); do
-  p=$(curl -s "$BFF/v1/payments/$OUT"); state=$(echo "$p" | grep -o '"status":"[A-Z_]*"' | head -1 | sed 's/.*:"\(.*\)"/\1/')
+  p=$(curl -s "$BFF/v1/payments/$OUT" -H "$PRIYA_H"); state=$(echo "$p" | grep -o '"status":"[A-Z_]*"' | head -1 | sed 's/.*:"\(.*\)"/\1/')
   [ "$state" = "COMPLETED" ] || [ "$state" = "REJECTED" ] || [ "$state" = "FAILED" ] && break
   sleep 1
 done
@@ -156,24 +180,24 @@ done
 
 echo "11. Scheme rejection: a payment to sort code 99-00-00 is rejected and the money returned"
 resp=$(curl -sf -X POST "$BFF/v1/payments" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuid)" \
-  -H "X-Customer-Id: $CUSTOMER" \
+  -H "$PRIYA_H" \
   -d '{"debtorAccount":"ACC-5501","creditor":{"name":"Nobody","sortCode":"990000","accountNumber":"00000000"},"amount":{"value":"10.00","currency":"GBP"},"remittanceInfo":"Test"}')
 REJ=$(echo "$resp" | field paymentId)
 for _ in $(seq 1 20); do
-  p=$(curl -s "$BFF/v1/payments/$REJ"); state=$(echo "$p" | grep -o '"status":"[A-Z_]*"' | head -1 | sed 's/.*:"\(.*\)"/\1/')
+  p=$(curl -s "$BFF/v1/payments/$REJ" -H "$PRIYA_H"); state=$(echo "$p" | grep -o '"status":"[A-Z_]*"' | head -1 | sed 's/.*:"\(.*\)"/\1/')
   [ "$state" = "REJECTED" ] || [ "$state" = "COMPLETED" ] || [ "$state" = "FAILED" ] && break
   sleep 1
 done
 [ "$state" = "REJECTED" ] && echo "$p" | grep -q 'PAY-SCHEME-001' && pass "REJECTED with PAY-SCHEME-001" || fail "Expected scheme rejection, got: $p"
 
 echo "12. Inbound payments are recorded: COMPLETED for an active customer, FLAGGED once frozen"
-list=$(curl -sf "$BFF/v1/payments" -H "X-Customer-Id: $ASHA")
+list=$(curl -sf "$BFF/v1/payments" -H "$ASHA_H")
 echo "$list" | grep -q '"paymentType":"INBOUND","status":"COMPLETED"' && pass "Asha's £100 welcome payment recorded as INBOUND COMPLETED" \
   || fail "No completed inbound payment for Asha: $list"
 curl -sf -X POST "$SIM/essence/v1/sim/inbound" -H 'Content-Type: application/json' \
   -d "{\"creditAccountId\":\"$ASHA_ACC\",\"amount\":\"5.00\",\"debtorName\":\"Arjun Mehta\",\"reference\":\"Coffee\"}" >/dev/null
 for _ in $(seq 1 15); do
-  list=$(curl -sf "$BFF/v1/payments" -H "X-Customer-Id: $ASHA")
+  list=$(curl -sf "$BFF/v1/payments" -H "$ASHA_H")
   echo "$list" | grep -q '"status":"FLAGGED"' && break
   sleep 1
 done
@@ -181,15 +205,15 @@ echo "$list" | grep -q '"status":"FLAGGED"' && pass "£5 to frozen Asha recorded
 
 echo "13. Web app: served by nginx, talking to the BFF"
 curl -sf "$WEB/" | grep -q "Banking Platform Prototype" && pass "Web app is up at $WEB" || fail "Web app not served at $WEB"
-me=$(curl -sf "$WEB/v1/me" -H "X-Customer-Id: $CUSTOMER")
+me=$(curl -sf "$WEB/v1/me" -H "$PRIYA_H")
 echo "$me" | grep -q '"accountId":"ACC-5501"' && pass "Home screen data through the web app: $(echo "$me" | head -c 160)…" \
   || fail "Unexpected /v1/me through the web app: $me"
 
 echo "14. Staff review: clearing Asha's case unfreezes her, unblocks her card and releases the held £5"
-q=$(curl -sf "$BFF/v1/staff/queue" -H "X-Staff-User: smoke-reviewer")
+q=$(curl -sf "$BFF/v1/staff/queue" -H "$STAFF_H")
 SAGA=$(echo "$q" | grep -o "\"sagaId\":\"[^\"]*\",\"customerId\":\"$ASHA\"" | head -1 | sed 's/"sagaId":"\([^"]*\)".*/\1/')
 [ -n "$SAGA" ] && pass "Asha's case is in the review queue (saga $SAGA)" || fail "No open review for Asha: $q"
-curl -sf -X POST "$BFF/v1/staff/reviews/$SAGA" -H 'Content-Type: application/json' -H "X-Staff-User: smoke-reviewer" \
+curl -sf -X POST "$BFF/v1/staff/reviews/$SAGA" -H 'Content-Type: application/json' -H "$STAFF_H" \
   -d '{"decision":"CLEAR","note":"False positive (smoke test)"}' >/dev/null
 for _ in $(seq 1 15); do
   status=$(curl -sf "$MAPPING/v1/customers/$ASHA" | field status)
@@ -198,7 +222,7 @@ for _ in $(seq 1 15); do
 done
 [ "$status" = "ACTIVE" ] && pass "Asha is ACTIVE again" || fail "Expected ACTIVE after CLEAR, got $status"
 for _ in $(seq 1 15); do
-  list=$(curl -sf "$BFF/v1/payments" -H "X-Customer-Id: $ASHA")
+  list=$(curl -sf "$BFF/v1/payments" -H "$ASHA_H")
   echo "$list" | grep -q '"status":"FLAGGED"' || break
   sleep 1
 done
@@ -212,7 +236,7 @@ done
 echo "$tap" | grep -q '"decision":"APPROVE"' && pass "Asha's card works again" || fail "Expected APPROVE after CLEAR, got $tap"
 
 echo "15. Card controls: Priya turns off online payments, raises her limit, then freezes her card"
-ctl() { curl -sf -X PUT "$BFF/v1/cards/controls" -H 'Content-Type: application/json' -H "X-Customer-Id: $CUSTOMER" -d "$1" >/dev/null; }
+ctl() { curl -sf -X PUT "$BFF/v1/cards/controls" -H 'Content-Type: application/json' -H "$PRIYA_H" -d "$1" >/dev/null; }
 tapp() { curl -sf -X POST "$SIM/thredd/v1/sim/card-tap" -H 'Content-Type: application/json' \
   -d "{\"token\":\"$TOKEN\",\"amount\":\"$1\",\"merchant\":\"$2\",\"channel\":\"$3\"}"; }
 ctl '{"frozen":false,"dailyLimit":"1000.00","online":false,"contactless":true,"atm":true}'
@@ -227,7 +251,7 @@ ctl '{"frozen":false,"dailyLimit":"300.00","online":true,"contactless":true,"atm
 
 echo "16. Live push: the app's event stream receives Priya's incoming payment as it happens"
 EVENTS=$(mktemp)
-curl -sN --max-time 20 "$WEB/v1/events?customerId=$CUSTOMER" > "$EVENTS" &
+curl -sN --max-time 20 "$WEB/v1/events?customerId=$CUSTOMER${PRIYA_TOKEN:+&access_token=$PRIYA_TOKEN}" > "$EVENTS" &
 CURL_PID=$!
 sleep 3
 curl -sf -X POST "$SIM/essence/v1/sim/inbound" -H 'Content-Type: application/json' \
@@ -239,12 +263,12 @@ grep -q "payment.received" "$EVENTS" && pass "Pushed over Server-Sent Events: $(
 
 echo "17. Reconciliation: today's payments and card settlements all match Essence; a rogue posting is caught"
 curl -sf -X POST "$SIM/essence/v1/sim/rogue-posting" -H 'Content-Type: application/json' -d '{"accountId":"ACC-5510","amount":"7.77"}' >/dev/null
-rec=$(curl -sf -X POST "$BFF/v1/staff/recon/runs" -H "X-Staff-User: smoke-reviewer")
+rec=$(curl -sf -X POST "$BFF/v1/staff/recon/runs" -H "$STAFF_H")
 echo "$rec" | grep -q '"source":"PAYMENTS","matched":[1-9][0-9]*,"exceptions":0' && pass "PAYMENTS: all matched ($(echo "$rec" | grep -o '"source":"PAYMENTS"[^}]*'))" \
   || fail "Payments did not reconcile cleanly: $rec"
 echo "$rec" | grep -q '"source":"CARDS","matched":[1-9][0-9]*,"exceptions":0' && pass "CARDS: all matched ($(echo "$rec" | grep -o '"source":"CARDS"[^}]*'))" \
   || fail "Card settlements did not reconcile cleanly: $rec"
-exc=$(curl -sf "$BFF/v1/staff/recon/exceptions" -H "X-Staff-User: smoke-reviewer")
+exc=$(curl -sf "$BFF/v1/staff/recon/exceptions" -H "$STAFF_H")
 echo "$exc" | grep -q '"type":"MISSING_IN_SOURCE","sourceRef":"ROGUE-' && pass "Rogue Essence posting reported as MISSING_IN_SOURCE" \
   || fail "Rogue posting not reported: $exc"
 
@@ -255,6 +279,21 @@ if [ -n "$st" ]; then
     && pass "Debezium outbox connector RUNNING (bff, orchestration, mapping, ehi outboxes)" || fail "Connector not healthy: $st"
 else
   echo "  SKIP Kafka Connect not reachable at $CONNECT (services are in direct mode)"
+fi
+
+if [ "$AUTH" = 1 ]; then
+  echo "19. Login: no token is refused; a view-only staff login cannot decide reviews"
+  code=$(curl -s -o /dev/null -w '%{http_code}' "$BFF/v1/me")
+  [ "$code" = "401" ] && pass "No token → 401" || fail "Expected 401 without a token, got $code"
+  code=$(curl -s -o /dev/null -w '%{http_code}' "$BFF/v1/staff/queue" -H "Authorization: Bearer $PRIYA_TOKEN")
+  [ "$code" = "403" ] && pass "Customer token on the staff API → 403" || fail "Expected 403 for a customer on /v1/staff, got $code"
+  code=$(curl -s -o /dev/null -w '%{http_code}' "$BFF/v1/staff/queue" -H "Authorization: Bearer $OPS_TOKEN")
+  [ "$code" = "200" ] && pass "Staff role can view the Control Room" || fail "Expected 200 for ops on the queue, got $code"
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BFF/v1/staff/recon/runs" -H "Authorization: Bearer $OPS_TOKEN")
+  [ "$code" = "403" ] && pass "Staff without compliance cannot run reconciliation → 403" || fail "Expected 403 for ops, got $code"
+  me=$(curl -sf "$BFF/v1/me" -H "Authorization: Bearer $ASHA_TOKEN")
+  echo "$me" | grep -q "\"customerId\":\"$ASHA\"" && pass "Login 'asha' was linked to her customer when sign-up completed" \
+    || fail "Login asha not linked to $ASHA: $me"
 fi
 
 echo

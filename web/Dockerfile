@@ -3,6 +3,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY . .
+ARG VITE_KEYCLOAK_URL
+ENV VITE_KEYCLOAK_URL=$VITE_KEYCLOAK_URL
 RUN npm run build
 
 FROM nginx:1.27-alpine

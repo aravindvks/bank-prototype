@@ -1,5 +1,8 @@
 package bank.pbp.bff.onboarding;
 
+import bank.pbp.bff.security.Caller;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import bank.pbp.bff.IdempotencyStore;
 import bank.pbp.common.correlation.Correlation;
 import bank.pbp.common.error.VendorErrors;
@@ -40,17 +43,24 @@ public class OnboardingController {
     private final IdempotencyStore idempotency;
     private final EventPublisher events;
     private final RestClient orchestrator;
+    private final Caller caller;
+    private final JdbcClient jdbc;
 
-    public OnboardingController(IdempotencyStore idempotency, EventPublisher events, RestClient.Builder builder,
+    public OnboardingController(IdempotencyStore idempotency, EventPublisher events, Caller caller, JdbcClient jdbc,
+                                RestClient.Builder builder,
                                 @Value("${pbp.services.orchestrator-url}") String orchestratorUrl) {
         this.idempotency = idempotency;
         this.events = events;
+        this.caller = caller;
+        this.jdbc = jdbc;
         this.orchestrator = builder.clone().baseUrl(orchestratorUrl).build();
     }
 
     @PostMapping
     public ResponseEntity<Map<String, Object>> start(@Valid @RequestBody SignUp request,
-                                                     @RequestHeader("Idempotency-Key") UUID idempotencyKey) {
+                                                     @RequestHeader("Idempotency-Key") UUID idempotencyKey,
+                                                     HttpServletRequest http) {
+        String username = caller.username(http);
         String correlationId = Ids.newCorrelationId(JourneyType.ONB);
         Correlation.set(correlationId);
         Map<String, Object> body = idempotency.once("onboarding:" + idempotencyKey, request, () -> {
@@ -65,6 +75,10 @@ public class OnboardingController {
             data.put("customerType", request.customerType());
             data.put("name", request.name());
             data.put("email", request.email());
+            if (caller.authEnabled()) {
+                jdbc.sql("INSERT INTO onboarding_owner (onboarding_id, username) VALUES (CAST(:id AS uuid), :u)")
+                        .param("id", String.valueOf(r.get("onboardingId"))).param("u", username).update();
+            }
             // Keyed by onboarding ID until the customer ID exists.
             events.publish(Topics.ONBOARDING_COMMANDS, EventEnvelope.of("onboarding.start", "bff", correlationId,
                     null, String.valueOf(r.get("onboardingId")), data));
@@ -75,9 +89,19 @@ public class OnboardingController {
     }
 
     @GetMapping("/{onboardingId}")
-    public JsonNode status(@PathVariable UUID onboardingId) {
-        return VendorErrors.call("orchestrator", "onboarding.status", () -> orchestrator.get()
+    public JsonNode status(@PathVariable UUID onboardingId, HttpServletRequest http) {
+        JsonNode status = VendorErrors.call("orchestrator", "onboarding.status", () -> orchestrator.get()
                 .uri("/v1/onboarding/{id}", onboardingId).retrieve().body(JsonNode.class));
+        // When sign-up completes, link the login that started it to the new customer.
+        if (caller.authEnabled() && "COMPLETED".equals(status.path("status").asText())) {
+            String username = caller.username(http);
+            boolean owner = jdbc.sql("SELECT count(*) FROM onboarding_owner WHERE onboarding_id = :id AND username = :u")
+                    .param("id", onboardingId).param("u", username).query(Long.class).single() > 0;
+            if (owner) {
+                caller.link(username, UUID.fromString(status.path("customerId").asText()), "onboarding:" + onboardingId);
+            }
+        }
+        return status;
     }
 
     public record SignUp(@NotBlank @Pattern(regexp = "INDIVIDUAL|BUSINESS") String customerType,

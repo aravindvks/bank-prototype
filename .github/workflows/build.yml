@@ -73,6 +73,9 @@ jobs:
             curl -sf "http://localhost:$port/actuator/health" >/dev/null || { echo "port $port did not start"; exit 1; }
           done
 
+      - name: Wait for Keycloak
+        run: for i in $(seq 1 90); do curl -sf http://localhost:8180/realms/pbp >/dev/null && exit 0; sleep 2; done; exit 1
+
       - name: Wait for the web app
         run: for i in $(seq 1 60); do curl -sf http://localhost:3000/ >/dev/null && exit 0; sleep 2; done; exit 1
 

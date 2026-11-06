@@ -1,5 +1,7 @@
 package bank.pbp.bff.payments;
 
+import bank.pbp.bff.security.Caller;
+import jakarta.servlet.http.HttpServletRequest;
 import bank.pbp.common.correlation.Correlation;
 import bank.pbp.common.error.VendorErrors;
 import bank.pbp.common.ids.Ids;
@@ -24,8 +26,7 @@ import org.springframework.web.client.RestClient;
  * Customer payment entry point. Returns 202 Accepted at once; the orchestrator runs the
  * payment and the result reaches the app as a pushed event (Phase 1).
  *
- * <p>Phase 0 takes the customer from X-Customer-Id. Identity Domains login and token
- * validation at the API gateway replace this header in Phase 2.
+ * <p>The customer is the one linked to the signed-in login (see {@link Caller}).
  */
 @RestController
 @RequestMapping("/v1/payments")
@@ -33,10 +34,12 @@ public class PaymentController {
 
     private final PaymentService payments;
     private final RestClient orchestrator;
+    private final Caller caller;
 
-    public PaymentController(PaymentService payments, RestClient.Builder builder,
+    public PaymentController(PaymentService payments, Caller caller, RestClient.Builder builder,
                              @Value("${pbp.services.orchestrator-url}") String orchestratorUrl) {
         this.payments = payments;
+        this.caller = caller;
         this.orchestrator = builder.clone().baseUrl(orchestratorUrl).build();
     }
 
@@ -49,7 +52,8 @@ public class PaymentController {
 
     /** The customer's latest 50 payments, outbound and inbound. */
     @GetMapping
-    public JsonNode list(@RequestHeader("X-Customer-Id") UUID customerId) {
+    public JsonNode list(HttpServletRequest request) {
+        UUID customerId = caller.customerId(request);
         return VendorErrors.call("orchestrator", "payments.list", () -> orchestrator.get()
                 .uri("/v1/customers/{id}/payments", customerId).retrieve().body(JsonNode.class));
     }
@@ -57,7 +61,8 @@ public class PaymentController {
     @PostMapping
     public ResponseEntity<Map<String, Object>> create(@Valid @RequestBody PaymentRequest request,
                                                       @RequestHeader("Idempotency-Key") UUID idempotencyKey,
-                                                      @RequestHeader("X-Customer-Id") UUID customerId) {
+                                                      HttpServletRequest httpRequest) {
+        UUID customerId = caller.customerId(httpRequest);
         String correlationId = Correlation.current()
                 .filter(id -> id.startsWith("COR-PAY-"))
                 .orElseGet(() -> Ids.newCorrelationId(JourneyType.PAY));

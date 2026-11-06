@@ -1,5 +1,7 @@
 package bank.pbp.bff.push;
 
+import bank.pbp.bff.security.Caller;
+import jakarta.servlet.http.HttpServletRequest;
 import bank.pbp.common.events.EventEnvelope;
 import bank.pbp.common.events.EventPublisher;
 import bank.pbp.common.events.Topics;
@@ -7,7 +9,6 @@ import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.slf4j.Logger;
@@ -16,7 +17,6 @@ import org.springframework.http.MediaType;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -25,8 +25,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * in its own consumer group (from the latest offset), and forwards each event to the browsers of
  * the customer it belongs to over Server-Sent Events.
  *
- * <p>The customer is taken from the query string because browsers' EventSource cannot send
- * headers; login (Phase 2 F) replaces it with the session.
+ * <p>Browsers' EventSource cannot send headers, so the access token travels as the access_token
+ * query parameter; the customer is the one linked to that login.
  */
 @RestController
 public class PushHub {
@@ -35,14 +35,16 @@ public class PushHub {
 
     private final Map<String, List<SseEmitter>> byCustomer = new ConcurrentHashMap<>();
     private final EventPublisher events;
+    private final Caller caller;
 
-    public PushHub(EventPublisher events) {
+    public PushHub(EventPublisher events, Caller caller) {
         this.events = events;
+        this.caller = caller;
     }
 
     @GetMapping(path = "/v1/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter subscribe(@RequestParam UUID customerId) {
-        String key = customerId.toString();
+    public SseEmitter subscribe(HttpServletRequest request) {
+        String key = caller.customerId(request).toString();
         SseEmitter emitter = new SseEmitter(0L);
         byCustomer.computeIfAbsent(key, k -> new CopyOnWriteArrayList<>()).add(emitter);
         Runnable remove = () -> byCustomer.getOrDefault(key, new CopyOnWriteArrayList<>()).remove(emitter);

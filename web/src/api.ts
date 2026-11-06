@@ -56,9 +56,25 @@ export class ApiError extends Error {
   }
 }
 
+/** Set by main.tsx after Keycloak sign-in; empty when login is off (local Vite runs). */
+export const auth: {
+  enabled: boolean;
+  token: () => Promise<string | undefined>;
+  username: string;
+  roles: string[];
+  logout: () => void;
+} = { enabled: false, token: async () => undefined, username: '', roles: [], logout: () => {} };
+
+/** Authorization header when signed in; otherwise the development headers. */
+export async function authHeaders(dev: Record<string, string | undefined> = {}): Promise<Record<string, string>> {
+  const t = await auth.token();
+  if (t) return { Authorization: `Bearer ${t}` };
+  return Object.fromEntries(Object.entries(dev).filter(([, v]) => v)) as Record<string, string>;
+}
+
 async function request<T>(path: string, init: RequestInit = {}, customerId?: string): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (customerId) headers['X-Customer-Id'] = customerId;
+  if (!path.startsWith('/sim/')) Object.assign(headers, await authHeaders({ 'X-Customer-Id': customerId }));
   if (init.method === 'POST') headers['Idempotency-Key'] = crypto.randomUUID();
   const res = await fetch(path, { ...init, headers: { ...headers, ...(init.headers as Record<string, string>) } });
   const text = await res.text();
@@ -70,7 +86,7 @@ async function request<T>(path: string, init: RequestInit = {}, customerId?: str
 }
 
 export const api = {
-  me: (customerId: string) => request<Me>('/v1/me', {}, customerId),
+  me: (customerId?: string) => request<Me>('/v1/me', {}, customerId),
   payments: (customerId: string) => request<Payment[]>('/v1/payments', {}, customerId),
   payment: (paymentId: string) => request<Payment>(`/v1/payments/${paymentId}`),
   pay: (customerId: string, body: unknown) =>

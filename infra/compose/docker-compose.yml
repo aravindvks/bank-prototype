@@ -80,6 +80,20 @@ services:
       - ./register-outbox-connector.sh:/register.sh:ro
     entrypoint: ["/bin/bash", "/register.sh"]
 
+  # Login: Keycloak stands in for OCI Identity Domains locally (realm pbp, demo users in the README).
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0.6
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ../keycloak/pbp-realm.json:/opt/keycloak/data/import/pbp-realm.json:ro
+    ports: ["8180:8080"]
+
   redis:
     image: redis:7.4-alpine
     ports: ["6379:6379"]
@@ -136,6 +150,8 @@ services:
       ORCHESTRATOR_URL: http://orchestrator:8081
       REDIS_HOST: redis
       EVENTS_MODE: outbox
+      AUTH_ENABLED: "true"
+      KEYCLOAK_JWKS: http://keycloak:8080/realms/pbp/protocol/openid-connect/certs
       EHI_URL: http://ehi-responder:8083
       RECON_URL: http://recon-service:8087
     depends_on: &app-deps
@@ -224,6 +240,8 @@ services:
     profiles: ["apps"]
     build:
       context: ../../web
+      args:
+        VITE_KEYCLOAK_URL: http://localhost:8180
     depends_on: [bff, vendor-simulator]
     ports: ["3000:80"]
 

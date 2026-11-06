@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, gbp, toDate } from './api';
+import { ApiError, auth, authHeaders, gbp, toDate } from './api';
 
 type Row = Record<string, string | null>;
 type Queue = { reviews: Row[]; flaggedPayments: Row[]; stuckSagas: Row[] };
@@ -8,17 +8,19 @@ type Journey = { correlationId: string; sagas: Row[]; payments: Row[]; paymentHi
 async function staffFetch<T>(path: string, staff: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     ...init,
-    headers: { 'Content-Type': 'application/json', 'X-Staff-User': staff },
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders({ 'X-Staff-User': staff })) },
   });
   const text = await res.text();
   const body = text ? JSON.parse(text) : null;
+  if (res.status === 403) throw new ApiError('Your login does not have the staff role needed for this action', 'GEN-FORBID-001');
   if (!res.ok) throw new ApiError(body?.detail ?? `Request failed (${res.status})`, body?.code);
   return body as T;
 }
 
 /** Staff portal (Control Room): review queue, flagged payments, stuck sagas, journey search. */
 export default function Staff({ notify }: { notify: (m: string) => void }) {
-  const [staff, setStaff] = useState('aravind');
+  const [staff, setStaff] = useState(auth.username || 'aravind');
+  const canDecide = !auth.enabled || auth.roles.includes('compliance');
   const [queue, setQueue] = useState<Queue | null>(null);
   const [sagas, setSagas] = useState<Row[]>([]);
   const [search, setSearch] = useState('');
@@ -94,8 +96,11 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
           <span className="staff-sub">Banking Platform Prototype · operations and compliance</span>
           <span className="spacer" />
           <label className="staff-user">Signed in as
-            <input id="staff" value={staff} onChange={(e) => setStaff(e.target.value)} />
+            {auth.enabled
+              ? <strong>{auth.username}{canDecide ? ' · compliance' : ' · view only'}</strong>
+              : <input id="staff" value={staff} onChange={(e) => setStaff(e.target.value)} />}
           </label>
+          {auth.enabled && <button className="staff-link linklike" onClick={auth.logout}>Sign out</button>}
           <a className="staff-link" href="/">Customer app →</a>
         </div>
       </div>
@@ -122,8 +127,8 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
                         onChange={(e) => setNotes({ ...notes, [r.sagaId!]: e.target.value })} />
                     </td>
                     <td className="actions">
-                      <button className="btn small primary" onClick={() => decide(r.sagaId!, 'CLEAR')}>Clear</button>
-                      <button className="btn small danger" onClick={() => decide(r.sagaId!, 'CONFIRM')}>Confirm match</button>
+                      <button className="btn small primary" disabled={!canDecide} onClick={() => decide(r.sagaId!, 'CLEAR')}>Clear</button>
+                      <button className="btn small danger" disabled={!canDecide} onClick={() => decide(r.sagaId!, 'CONFIRM')}>Confirm match</button>
                     </td>
                   </tr>
                 ))}
@@ -158,7 +163,7 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
       <section className="panel stack">
         <div className="row between">
           <h2>Reconciliation</h2>
-          <button className="btn small primary" onClick={reconcile}>Run for today</button>
+          <button className="btn small primary" disabled={!canDecide} onClick={reconcile}>Run for today</button>
         </div>
         <p className="muted small">Every payment and card settlement the bank recorded, checked against Essence postings. Runs nightly at 02:00 UTC for the previous day.</p>
         {!runs.length ? <p className="muted">No runs yet.</p> : (

@@ -3,6 +3,11 @@ server:
 spring:
   application:
     name: bff
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${KEYCLOAK_JWKS:http://localhost:8180/realms/pbp/protocol/openid-connect/certs}
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:pbp}?currentSchema=bff
     username: ${DB_USER:pbp}
@@ -23,6 +28,10 @@ spring:
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 pbp:
+  auth:
+    # true: OAuth2 bearer tokens from Identity Domains (Keycloak locally) are required.
+    # false: development headers X-Customer-Id and X-Staff-User (IDE runs only).
+    enabled: ${AUTH_ENABLED:false}
   events:
     # outbox: Debezium relays events from the outbox table (Docker Compose, OCI); direct: straight to Kafka.
     mode: ${EVENTS_MODE:direct}

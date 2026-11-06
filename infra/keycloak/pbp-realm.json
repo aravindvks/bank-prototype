@@ -1,0 +1,45 @@
+{
+  "realm": "pbp",
+  "enabled": true,
+  "displayName": "Banking Platform Prototype",
+  "registrationAllowed": true,
+  "loginWithEmailAllowed": true,
+  "accessTokenLifespan": 3600,
+  "ssoSessionIdleTimeout": 28800,
+  "roles": {
+    "realm": [
+      { "name": "customer", "description": "Online banking customer" },
+      { "name": "staff", "description": "Bank staff: view the Control Room" },
+      { "name": "compliance", "description": "Compliance officer: decide reviews, run reconciliation" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "pbp-web",
+      "name": "Banking Platform Prototype web app",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": ["http://localhost:3000/*"],
+      "webOrigins": ["http://localhost:3000"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3000/*"
+      }
+    }
+  ],
+  "users": [
+    { "username": "priya", "email": "priya@example.com", "firstName": "Priya", "lastName": "Shah", "enabled": true,
+      "emailVerified": true, "realmRoles": ["customer"],
+      "credentials": [{ "type": "password", "value": "priya123", "temporary": false }] },
+    { "username": "asha", "email": "asha@example.com", "firstName": "Asha", "lastName": "Patel", "enabled": true,
+      "emailVerified": true, "realmRoles": ["customer"],
+      "credentials": [{ "type": "password", "value": "asha123", "temporary": false }] },
+    { "username": "aravind", "email": "aravind@example.com", "firstName": "Aravind", "lastName": "Compliance", "enabled": true,
+      "emailVerified": true, "realmRoles": ["staff", "compliance"],
+      "credentials": [{ "type": "password", "value": "staff123", "temporary": false }] },
+    { "username": "ops", "email": "ops@example.com", "firstName": "Ops", "lastName": "Viewer", "enabled": true,
+      "emailVerified": true, "realmRoles": ["staff"],
+      "credentials": [{ "type": "password", "value": "ops123", "temporary": false }] }
+  ]
+}

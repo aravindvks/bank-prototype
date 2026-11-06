@@ -1,5 +1,7 @@
 package bank.pbp.bff.me;
 
+import bank.pbp.bff.security.Caller;
+import jakarta.servlet.http.HttpServletRequest;
 import bank.pbp.common.error.VendorErrors;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -22,17 +24,20 @@ public class MeController {
     private final RestClient mapping;
     private final RestClient essence;
     private final ObjectMapper mapper;
+    private final Caller caller;
 
-    public MeController(RestClient.Builder builder, ObjectMapper mapper,
+    public MeController(RestClient.Builder builder, ObjectMapper mapper, Caller caller,
                         @Value("${pbp.services.mapping-url}") String mappingUrl,
                         @Value("${pbp.services.essence-adapter-url}") String essenceUrl) {
         this.mapping = builder.clone().baseUrl(mappingUrl).build();
         this.essence = builder.clone().baseUrl(essenceUrl).build();
         this.mapper = mapper;
+        this.caller = caller;
     }
 
     @GetMapping("/v1/me")
-    public Map<String, Object> me(@RequestHeader("X-Customer-Id") UUID customerId) {
+    public Map<String, Object> me(HttpServletRequest request) {
+        UUID customerId = caller.customerId(request);
         JsonNode graph = VendorErrors.call("mapping", "customers.graph", () -> mapping.get()
                 .uri("/v1/customers/{id}/graph", customerId).retrieve().body(JsonNode.class));
         Map<String, Object> out = new LinkedHashMap<>();

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, demo, gbp, toDate, ApiError, type CardControls, type Me, type Onboarding, type Payment } from './api';
+import { api, auth, demo, gbp, toDate, ApiError, type CardControls, type Me, type Onboarding, type Payment } from './api';
 import Staff from './Staff';
 
 const STORAGE_KEY = 'pbp.customerId';
@@ -32,7 +32,16 @@ function saveCustomer(id: string | null) {
 }
 
 export default function App() {
-  const [customerId, setCustomerId] = useState<string | null>(readCustomer);
+  const [customerId, setCustomerId] = useState<string | null>(() => (auth.enabled ? null : readCustomer()));
+  // With login on, the bank customer comes from the signed-in user (CUS-LINK-001 = not linked yet → sign up).
+  const [checking, setChecking] = useState(auth.enabled);
+  useEffect(() => {
+    if (!auth.enabled) return;
+    api.me()
+      .then((m) => setCustomerId(m.customerId))
+      .catch(() => setCustomerId(null))
+      .finally(() => setChecking(false));
+  }, []);
   const [toast, setToast] = useState<string | null>(null);
   const isStaff = () => location.hash === '#staff' || location.pathname.startsWith('/staff');
   const [staffView, setStaffView] = useState(isStaff);
@@ -56,8 +65,11 @@ export default function App() {
 
   return (
     <>
-      {staffView ? <Staff notify={setToast} /> : customerId ? (
-        <Bank customerId={customerId} notify={setToast} onSignOut={() => { saveCustomer(null); setCustomerId(null); }} />
+      {staffView ? <Staff notify={setToast} /> : checking ? (
+        <main className="shell narrow"><p className="muted">Signing you in…</p></main>
+      ) : customerId ? (
+        <Bank customerId={customerId} notify={setToast}
+          onSignOut={() => { saveCustomer(null); setCustomerId(null); if (auth.enabled) auth.logout(); }} />
       ) : (
         <Welcome onReady={signIn} notify={setToast} />
       )}
@@ -71,7 +83,11 @@ export default function App() {
 // ---------------------------------------------------------------------------------------------
 
 function Welcome({ onReady, notify }: { onReady: (id: string) => void; notify: (m: string) => void }) {
-  const [form, setForm] = useState({ name: 'Priya Shah', email: 'priya@example.com', customerType: 'INDIVIDUAL' });
+  const [form, setForm] = useState({
+    name: auth.enabled ? '' : 'Priya Shah',
+    email: auth.enabled ? '' : 'priya@example.com',
+    customerType: 'INDIVIDUAL',
+  });
   const [onboardingId, setOnboardingId] = useState<string | null>(null);
   const [existing, setExisting] = useState('');
   const [busy, setBusy] = useState(false);
@@ -114,6 +130,9 @@ function Welcome({ onReady, notify }: { onReady: (id: string) => void; notify: (
         </label>
         <button className="btn primary" disabled={busy}>{busy ? 'Starting…' : 'Open account'}</button>
       </form>
+      {auth.enabled ? (
+        <p className="muted small">Signed in as <strong>{auth.username}</strong>. This login is not linked to a bank account yet. <button className="linklike" onClick={auth.logout}>Sign out</button></p>
+      ) : (
       <form className="panel stack" onSubmit={(e) => { e.preventDefault(); if (existing.trim()) onReady(existing.trim()); }}>
         <h2>Already a customer?</h2>
         <label className="field">Customer ID
@@ -121,6 +140,7 @@ function Welcome({ onReady, notify }: { onReady: (id: string) => void; notify: (
         </label>
         <button className="btn">Continue</button>
       </form>
+      )}
     </main>
   );
 }
@@ -201,20 +221,31 @@ function Bank({ customerId, notify, onSignOut }: { customerId: string; notify: (
   useEffect(() => {
     refresh();
     const t = setInterval(refresh, 15000);
-    const source = new EventSource(`/v1/events?customerId=${encodeURIComponent(customerId)}`);
-    source.addEventListener('ready', () => setLive(true));
-    source.addEventListener('bank', (ev) => {
-      try {
-        const e = JSON.parse((ev as MessageEvent).data) as { type: string; data: Record<string, unknown> };
-        const text = describe(e.type, e.data);
-        if (text) notify(text);
-      } catch {
-        /* ignore malformed events */
-      }
-      refresh();
-    });
-    source.onerror = () => setLive(false);
-    return () => { clearInterval(t); source.close(); };
+    let source: EventSource | null = null;
+    let closed = false;
+    const wire = (es: EventSource) => {
+      es.addEventListener('ready', () => setLive(true));
+      es.addEventListener('bank', (ev) => {
+        try {
+          const e = JSON.parse((ev as MessageEvent).data) as { type: string; data: Record<string, unknown> };
+          const text = describe(e.type, e.data);
+          if (text) notify(text);
+        } catch {
+          /* ignore malformed events */
+        }
+        refresh();
+      });
+      es.onerror = () => setLive(false);
+    };
+    (async () => {
+      const token = await auth.token();
+      if (closed) return;
+      source = new EventSource(token
+        ? `/v1/events?access_token=${encodeURIComponent(token)}`
+        : `/v1/events?customerId=${encodeURIComponent(customerId)}`);
+      wire(source);
+    })();
+    return () => { closed = true; clearInterval(t); source?.close(); };
   }, [refresh, customerId, notify]);
 
   const frozen = me && me.status !== 'ACTIVE';
@@ -225,7 +256,7 @@ function Bank({ customerId, notify, onSignOut }: { customerId: string; notify: (
         <header className="topbar">
           <div className="brand">
             <h1>Banking Platform Prototype</h1>
-            <p className="muted">{me?.account?.name ?? 'Loading…'} · <span className="mono small">{customerId}</span>
+            <p className="muted">{me?.account?.name ?? 'Loading…'}{auth.enabled ? ` · signed in as ${auth.username}` : ''} · <span className="mono small">{customerId}</span>
               {' '}<span className={`pill ${live ? 'p-ok' : 'p-n'}`}>{live ? 'live' : 'offline'}</span></p>
           </div>
           <div className="row">

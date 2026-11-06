@@ -1,5 +1,7 @@
 package bank.pbp.bff.cards;
 
+import bank.pbp.bff.security.Caller;
+import jakarta.servlet.http.HttpServletRequest;
 import bank.pbp.common.correlation.Correlation;
 import bank.pbp.common.error.PbpException;
 import bank.pbp.common.error.VendorErrors;
@@ -34,16 +36,19 @@ public class CardController {
 
     private final EventPublisher events;
     private final RestClient mapping;
+    private final Caller caller;
 
-    public CardController(EventPublisher events, RestClient.Builder builder,
+    public CardController(EventPublisher events, Caller caller, RestClient.Builder builder,
                           @Value("${pbp.services.mapping-url}") String mappingUrl) {
         this.events = events;
+        this.caller = caller;
         this.mapping = builder.clone().baseUrl(mappingUrl).build();
     }
 
     @PutMapping("/v1/cards/controls")
     public ResponseEntity<Map<String, Object>> controls(@Valid @RequestBody Controls req,
-                                                        @RequestHeader("X-Customer-Id") UUID customerId) {
+                                                        HttpServletRequest request) {
+        UUID customerId = caller.customerId(request);
         JsonNode graph = VendorErrors.call("mapping", "customers.graph", () -> mapping.get()
                 .uri("/v1/customers/{id}/graph", customerId).retrieve().body(JsonNode.class));
         JsonNode card = null;
