@@ -224,5 +224,17 @@ for _ in $(seq 1 15); do t=$(tapp 2.00 "Bean There Cafe" contactless); echo "$t"
 echo "$t" | grep -q '"reason":"CARD_BLOCKED"' && pass "Frozen card declined: CARD_BLOCKED" || fail "Expected CARD_BLOCKED, got $t"
 ctl '{"frozen":false,"dailyLimit":"300.00","online":true,"contactless":true,"atm":true}'
 
+echo "16. Live push: the app's event stream receives Priya's incoming payment as it happens"
+EVENTS=$(mktemp)
+curl -sN --max-time 20 "$WEB/v1/events?customerId=$CUSTOMER" > "$EVENTS" &
+CURL_PID=$!
+sleep 3
+curl -sf -X POST "$SIM/essence/v1/sim/inbound" -H 'Content-Type: application/json' \
+  -d '{"creditAccountId":"ACC-5501","amount":"1.00","debtorName":"Live Push Test","reference":"SSE"}' >/dev/null
+for _ in $(seq 1 15); do grep -q "payment.received" "$EVENTS" && break; sleep 1; done
+kill $CURL_PID 2>/dev/null || true
+grep -q "payment.received" "$EVENTS" && pass "Pushed over Server-Sent Events: $(grep -o '"type":"payment.received"[^}]*' "$EVENTS" | head -1 | head -c 120)…" \
+  || fail "No payment.received event on the stream: $(head -c 400 "$EVENTS")"
+
 echo
 echo "All checks passed. Search the logs for $CORR to follow the payment across services."

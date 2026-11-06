@@ -195,12 +195,26 @@ function Bank({ customerId, notify, onSignOut }: { customerId: string; notify: (
     }
   }, [customerId]);
 
-  // Live view: polling every 3 s. WebSocket push from the BFF replaces this in Phase 2.
+  // Live view: the BFF pushes this customer's events (Server-Sent Events); a slow poll is the fallback.
+  const [live, setLive] = useState(false);
   useEffect(() => {
     refresh();
-    const t = setInterval(refresh, 3000);
-    return () => clearInterval(t);
-  }, [refresh]);
+    const t = setInterval(refresh, 15000);
+    const source = new EventSource(`/v1/events?customerId=${encodeURIComponent(customerId)}`);
+    source.addEventListener('ready', () => setLive(true));
+    source.addEventListener('bank', (ev) => {
+      try {
+        const e = JSON.parse((ev as MessageEvent).data) as { type: string; data: Record<string, unknown> };
+        const text = describe(e.type, e.data);
+        if (text) notify(text);
+      } catch {
+        /* ignore malformed events */
+      }
+      refresh();
+    });
+    source.onerror = () => setLive(false);
+    return () => { clearInterval(t); source.close(); };
+  }, [refresh, customerId, notify]);
 
   const frozen = me && me.status !== 'ACTIVE';
   return (
@@ -210,7 +224,8 @@ function Bank({ customerId, notify, onSignOut }: { customerId: string; notify: (
         <header className="topbar">
           <div className="brand">
             <h1>Banking Platform Prototype</h1>
-            <p className="muted">{me?.account?.name ?? 'Loading…'} · <span className="mono small">{customerId}</span></p>
+            <p className="muted">{me?.account?.name ?? 'Loading…'} · <span className="mono small">{customerId}</span>
+              {' '}<span className={`pill ${live ? 'p-ok' : 'p-n'}`}>{live ? 'live' : 'offline'}</span></p>
           </div>
           <div className="row">
             <a className="btn small" href="#staff">Staff portal</a>
@@ -505,5 +520,21 @@ function parseCreditor(json?: string | null): Record<string, string | undefined>
 
 const label = (type: string) =>
   ({ INTERNAL: 'Same-bank transfer', FPS: 'Faster Payment', CHAPS: 'CHAPS', BACS: 'Bacs', INBOUND: 'Money in' } as Record<string, string>)[type] ?? type;
+
+/** Short customer-facing text for a pushed event, or null to refresh silently. */
+function describe(type: string, d: Record<string, unknown>): string | null {
+  const amount = (d.amount as { value?: string } | undefined)?.value;
+  switch (type) {
+    case 'card.authorised': return `Card payment ${gbp(amount)} at ${d.merchant}`;
+    case 'card.declined': return `Card declined at ${d.merchant}: ${d.reason}`;
+    case 'payment.completed': return `Payment of ${gbp(amount)} completed`;
+    case 'payment.rejected': return `Payment of ${gbp(amount)} rejected: ${d.reason}`;
+    case 'payment.received': return d.status === 'FLAGGED' ? `${gbp(amount)} received and held for review` : `You received ${gbp(amount)} from ${d.debtorName}`;
+    case 'payment.released': return `Held payment of ${gbp(amount)} released`;
+    case 'customer.status_changed': return d.to === 'FROZEN' ? 'Your account is under review' : d.to === 'ACTIVE' ? 'Your account is fully available' : null;
+    case 'card.controls_changed': return 'Card settings updated';
+    default: return null;
+  }
+}
 
 const fmtSort = (s?: string | null) => (s ? `${s.slice(0, 2)}-${s.slice(2, 4)}-${s.slice(4, 6)}` : '—');
