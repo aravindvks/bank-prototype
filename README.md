@@ -15,7 +15,7 @@ The design is in the HLD and LLD documents ("Banking Platform Prototype – High
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 0 | Build, local stack, schemas, topics, service skeletons, simulators, one same-bank payment and one card tap end to end | **This commit** |
-| 1 | Priya end to end: onboarding and KYC saga, card issue, EHI with OCI Cache and Essence holds, outbound UK payments, inbound payments, web app | Next |
+| 1 | Priya end to end: onboarding and KYC saga, card issue, EHI with OCI Cache and Essence holds, outbound UK payments, inbound payments, web app; each adapter gets a gateway interface with simulator and sandbox connectors chosen by `vendor.<name>.mode` | Next |
 | 2 | Staff portal, recon matching, observability dashboards, outbox relay with Debezium | |
 | 3 | OCI Terraform (OKE, API Gateway, EHI listener, PostgreSQL, Streaming, Vault) and pipelines | |
 | 4 | Switch each adapter from simulator to vendor sandbox as credentials arrive | |
