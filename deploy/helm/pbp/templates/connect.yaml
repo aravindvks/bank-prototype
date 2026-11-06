@@ -1,0 +1,69 @@
+{{- if .Values.connect.enabled }}
+# Kafka Connect with Debezium: relays every service's outbox table to OCI Streaming (LLD section 9).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: connect
+  labels:
+    app.kubernetes.io/name: connect
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: connect
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: connect
+    spec:
+      containers:
+        - name: connect
+          image: {{ .Values.connect.image }}
+          ports:
+            - name: http
+              containerPort: 8083
+          env:
+            - name: BOOTSTRAP_SERVERS
+              value: {{ .Values.config.KAFKA_BOOTSTRAP | quote }}
+            - name: GROUP_ID
+              value: pbp-connect
+            - name: CONFIG_STORAGE_TOPIC
+              value: pbp-connect-configs
+            - name: OFFSET_STORAGE_TOPIC
+              value: pbp-connect-offsets
+            - name: STATUS_STORAGE_TOPIC
+              value: pbp-connect-statuses
+            - name: CONNECT_SECURITY_PROTOCOL
+              value: SASL_SSL
+            - name: CONNECT_SASL_MECHANISM
+              value: PLAIN
+            - name: CONNECT_SASL_JAAS_CONFIG
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: SPRING_KAFKA_PROPERTIES_SASL_JAAS_CONFIG
+            - name: CONNECT_PRODUCER_SECURITY_PROTOCOL
+              value: SASL_SSL
+            - name: CONNECT_PRODUCER_SASL_MECHANISM
+              value: PLAIN
+            - name: CONNECT_PRODUCER_SASL_JAAS_CONFIG
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: SPRING_KAFKA_PROPERTIES_SASL_JAAS_CONFIG
+          resources:
+            requests: { cpu: 500m, memory: 1Gi }
+            limits: { memory: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: connect
+spec:
+  selector:
+    app.kubernetes.io/name: connect
+  ports:
+    - name: http
+      port: 8083
+      targetPort: http
+{{- end }}

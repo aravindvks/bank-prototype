@@ -1,0 +1,10 @@
+# Terraform state in an OCI Object Storage bucket through the S3-compatible API.
+bucket                      = "pbp-terraform-state"
+key                         = "uk/dev/terraform.tfstate"
+region                      = "uk-london-1"
+endpoints                   = { s3 = "https://<namespace>.compat.objectstorage.uk-london-1.oraclecloud.com" }
+skip_region_validation      = true
+skip_credentials_validation = true
+skip_requesting_account_id  = true
+skip_metadata_api_check     = true
+use_path_style              = true

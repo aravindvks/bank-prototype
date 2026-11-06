@@ -1,0 +1,77 @@
+# Banking Platform Prototype on OKE. One release per environment: helm upgrade --install pbp-dev . -f values-dev.yaml
+
+image:
+  registry: uk-london-1.ocir.io/NAMESPACE/pbp   # from terraform output "registry"
+  tag: latest                                   # the release pipeline sets the git SHA
+  pullSecret: ocir                              # docker-registry secret for OCIR
+
+env: dev
+
+# Shared, non-secret settings (ConfigMap). Secrets come from the Secret named below,
+# filled from OCI Vault (see externalSecrets).
+config:
+  DB_HOST: "10.20.20.10"                        # terraform output postgres_endpoint
+  DB_NAME: pbp
+  KAFKA_BOOTSTRAP: "cell-1.streaming.uk-london-1.oci.oraclecloud.com:9092"  # terraform output kafka_bootstrap
+  SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL: SASL_SSL
+  SPRING_KAFKA_PROPERTIES_SASL_MECHANISM: PLAIN
+  REDIS_HOST: "pbp-dev-cache.redis.uk-london-1.oci.oraclecloud.com"          # terraform output cache_endpoint
+  SPRING_DATA_REDIS_SSL_ENABLED: "true"
+  TEMPORAL_TARGET: "temporal-frontend.temporal:7233"
+  EVENTS_MODE: outbox
+  AUTH_ENABLED: "true"
+  KEYCLOAK_JWKS: "https://idcs-xxxx.identity.oraclecloud.com/admin/v1/SigningCert/jwk"  # Identity Domains JWKS
+  ESSENCE_MODE: simulator                       # sandbox once the Finastra connector is built
+  THREDD_MODE: simulator
+  ATFINITY_MODE: simulator
+  MAPPING_URL: http://mapping-service:8082
+  ESSENCE_ADAPTER_URL: http://essence-adapter:8084
+  ATFINITY_ADAPTER_URL: http://atfinity-adapter:8086
+  THREDD_ADAPTER_URL: http://thredd-adapter:8085
+  ORCHESTRATOR_URL: http://orchestrator:8081
+  EHI_URL: http://ehi-responder:8083
+  RECON_URL: http://recon-service:8087
+  ESSENCE_BASE_URL: http://vendor-simulator:8090/essence/v1
+  THREDD_BASE_URL: http://vendor-simulator:8090/thredd/v1
+  ATFINITY_BASE_URL: http://vendor-simulator:8090/atfinity/v1
+  SIM_ESSENCE_WEBHOOK_URL: http://essence-adapter:8084/hooks/finastra
+  SIM_ATFINITY_WEBHOOK_URL: http://atfinity-adapter:8086/hooks/atfinity
+  SIM_THREDD_EHI_URL: http://ehi-responder:8083/ehi/v1/messages
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+
+# Keys expected in the Secret: DB_USER, DB_PASSWORD, WEBHOOK_SECRET, SPRING_KAFKA_PROPERTIES_SASL_JAAS_CONFIG
+secretName: pbp-secrets
+
+externalSecrets:
+  enabled: false            # true: External Secrets Operator syncs the Secret from OCI Vault
+  vaultId: ""
+  secretStore: oci-vault
+
+# Replicas, resources and scaling from LLD section 13.
+services:
+  bff:              { port: 8080, min: 2, max: 6,  cpu: 500m, memory: 1Gi, scaleCpu: 70 }
+  orchestrator:     { port: 8081, min: 2, max: 8,  cpu: "1",  memory: 2Gi, scaleCpu: 70 }
+  mapping-service:  { port: 8082, min: 2, max: 4,  cpu: 500m, memory: 1Gi, scaleCpu: 70 }
+  ehi-responder:    { port: 8083, min: 3, max: 10, cpu: "1",  memory: 2Gi, scaleCpu: 60, spreadRequired: true }
+  essence-adapter:  { port: 8084, min: 3, max: 8,  cpu: "1",  memory: 2Gi, scaleCpu: 60 }
+  thredd-adapter:   { port: 8085, min: 2, max: 4,  cpu: 500m, memory: 1Gi, scaleCpu: 70 }
+  atfinity-adapter: { port: 8086, min: 2, max: 4,  cpu: 500m, memory: 1Gi, scaleCpu: 70 }
+  recon-service:    { port: 8087, min: 1, max: 1,  cpu: "1",  memory: 2Gi }
+  vendor-simulator: { port: 8090, min: 1, max: 2,  cpu: 500m, memory: 1Gi, enabled: true }  # dev and demo only
+  web:              { port: 80,   min: 2, max: 6,  cpu: 250m, memory: 256Mi, scaleCpu: 70, probePath: / }
+
+# Thredd's EHI calls arrive on their own load balancer (not API Gateway), TLS, Thredd IPs only.
+ehiLoadBalancer:
+  enabled: true
+  tlsSecret: ehi-tls                     # certificate for the EHI host name registered with Thredd
+  sourceRanges: []                       # Thredd egress CIDRs (terraform var thredd_ehi_source_cidrs)
+  shapeMinMbps: "10"
+  shapeMaxMbps: "100"
+
+# API Gateway forwards to the web app (which proxies /v1 to the BFF) on a private load balancer.
+webInternalLoadBalancer: true
+
+# Kafka Connect with Debezium relays the outbox tables (LLD section 9).
+connect:
+  enabled: true
+  image: quay.io/debezium/connect:2.7.3.Final

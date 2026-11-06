@@ -17,12 +17,30 @@ The design is in the HLD and LLD documents ("Banking Platform Prototype – High
 | 0 | Build, local stack, schemas, topics, service skeletons, simulators, one same-bank payment and one card tap end to end | Done |
 | 1 | Priya end to end: onboarding and KYC saga, card issue, EHI with cache, holds, limits and settlement, sanctions freeze, outbound UK payments with scheme status, inbound payments, customer web app; simulator and sandbox connectors per vendor (`vendor.<name>.mode`) | **Done** |
 | 2 | Staff portal (review queue, clear or confirm, journey search), card controls, live push (Server-Sent Events), reconciliation matching, transactional outbox relayed by Debezium, login with roles (Keycloak standing in for Identity Domains) | **Done** |
-| 3 | OCI Terraform (OKE, API Gateway, EHI listener, PostgreSQL, Streaming, Vault) and pipelines | |
+| 3 | OCI Terraform (network with reserved egress IP, OKE, PostgreSQL, Streaming topics, Cache, Vault, Object Storage with retention lock, OCIR, API Gateway, WAF, logging, APM), Helm chart (LLD section 13 sizing, dedicated EHI load balancer, Debezium Connect, Vault-synced secrets) and the release pipeline | **Built and validated; not yet applied** |
 | 4 | Switch each adapter from simulator to vendor sandbox as credentials arrive | |
+
+## Deploying to OCI (Phase 3)
+
+Validated in CI (`terraform validate`, `helm lint`, `kubeconform`) but not yet applied to a tenancy.
+
+1. **Infrastructure** (`infra/terraform`): copy `terraform.tfvars.example` and `backend.hcl.example`, then
+   `terraform init -backend-config=backend.hcl && terraform apply`. Give the `nat_egress_ip` output to
+   Finastra, Thredd and Atfinity for their allow-lists.
+2. **Cluster add-ons** (once per cluster): Temporal (official Temporal Helm chart, namespace `temporal`,
+   persistence on the same PostgreSQL), External Secrets Operator with an OCI Vault `ClusterSecretStore`,
+   and the `ocir` image pull secret and `ehi-tls` certificate secret.
+3. **Secrets in Vault**: `pbp-<env>-db-user`, `-db-password`, `-webhook-secret`,
+   `-spring-kafka-properties-sasl-jaas-config` (OCI Streaming auth token).
+4. **Release**: run the `deploy` workflow (Actions → deploy → environment). It builds and tests, pushes all
+   images to OCIR tagged with the commit, and runs `helm upgrade --install pbp-<env>`.
+5. **After the first deploy**: set `bff_backend_url` (the web app's private load balancer) and
+   `ehi_load_balancer_id` (the `ehi-public` load balancer) in Terraform and apply again to wire API Gateway
+   and WAF.
 
 ## Continuous integration
 
-Every push runs two GitHub Actions jobs: **build** (compile and unit tests, including the Temporal payment workflow on Temporal's test server) and **e2e** (starts the whole stack in Docker and runs `scripts/smoke.sh`). Failures are reported as annotations on the commit.
+Every push runs three GitHub Actions jobs: **build** (compile and unit tests, including the Temporal workflows on Temporal's test server), **infra** (Terraform and Helm validation) and **e2e** (starts the whole stack in Docker and runs `scripts/smoke.sh`). The **deploy** workflow is run by hand per environment. Failures are reported as annotations on the commit.
 
 ## Run it
 
@@ -140,6 +158,9 @@ that class is written. Nothing outside the adapter changes.
 - Vendor field names are placeholders until each vendor's API specification is received.
 
 ## Corrections to the LLD found while building
+
+- OCI Streaming keeps messages for at most 7 days, so the LLD's 30-day retention for event topics is set to 7 days; longer history comes from the archive bucket and the database.
+- Identity Domains carries roles as group names in the `groups` claim; create groups `staff` and `compliance`. Keycloak locally uses realm roles.
 
 - **Partitioned tables need the partition column in every unique key.** PostgreSQL rejects `payment_id UUID PRIMARY KEY` on a table partitioned by `created_at`. `payment` uses `PRIMARY KEY (payment_id, created_at)` and `UNIQUE (idempotency_key, created_at)`; the orchestrator always passes the command's `initiatedAt` as `created_at`, so retries stay idempotent. The LLD DDL should be updated to match.
 - The LLD calls the correlation suffix base32, but its example `COR-PAY-7K2M9QXA4B1D` contains `9` and `1`. New IDs use base32; validation accepts `A-Z0-9` so both forms work.

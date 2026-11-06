@@ -45,6 +45,35 @@ jobs:
       - name: Validate Docker Compose file
         run: docker compose -f infra/compose/docker-compose.yml --profile apps config --quiet
 
+  # Infrastructure as code: Terraform for OCI and the Helm chart for OKE, validated without a cloud account.
+  infra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - name: Terraform format and validate
+        working-directory: infra/terraform
+        run: |
+          set -o pipefail
+          terraform fmt -check -recursive -diff > tf.log 2>&1 || echo "terraform fmt: style differences (not blocking)"
+          terraform init -backend=false -input=false 2>&1 | tee -a tf.log
+          terraform validate -no-color 2>&1 | tee -a tf.log
+      - name: Helm lint and render
+        run: |
+          set -o pipefail
+          helm lint deploy/helm/pbp 2>&1 | tee helm.log
+          helm template pbp-dev deploy/helm/pbp > rendered.yaml
+          helm template pbp-demo deploy/helm/pbp -f deploy/helm/pbp/values-demo.yaml > rendered-demo.yaml
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
+          ./kubeconform -strict -summary -ignore-missing-schemas rendered.yaml rendered-demo.yaml 2>&1 | tee -a helm.log
+      - name: Report infrastructure errors
+        if: failure()
+        run: |
+          msg=$(cat infra/terraform/tf.log helm.log 2>/dev/null | grep -v '^\s*$' | tail -60 | sed -e 's/%/%25/g' | cut -c1-300 | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Infrastructure validation failed::${msg}"
+
   # Starts the full stack in Docker and runs scripts/smoke.sh: mapping links, a card tap through
   # the EHI responder, and a same-bank payment through BFF → Kafka → Temporal → Essence adapter.
   e2e:

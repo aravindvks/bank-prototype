@@ -1,0 +1,6 @@
+apiVersion: v2
+name: pbp
+description: Banking Platform Prototype — all services for one environment on OKE (LLD section 13)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -56,16 +56,27 @@ public class SecurityConfig {
         return http.build();
     }
 
-    /** Keycloak / Identity Domains realm roles (realm_access.roles) → ROLE_ authorities. */
+    /**
+     * Roles → ROLE_ authorities. Keycloak puts realm roles in realm_access.roles; OCI Identity Domains
+     * puts group names in "groups" (create groups named staff and compliance there).
+     */
     static final class RealmRoles implements Converter<Jwt, AbstractAuthenticationToken> {
         @Override
         public AbstractAuthenticationToken convert(Jwt jwt) {
             Object realm = jwt.getClaims().get("realm_access");
             Collection<?> roles = realm instanceof Map<?, ?> m && m.get("roles") instanceof Collection<?> c ? c : List.of();
+            Object groups = jwt.getClaims().get("groups");
+            if (roles.isEmpty() && groups instanceof Collection<?> g) {
+                roles = g;
+            }
             List<GrantedAuthority> authorities = roles.stream()
                     .map(r -> (GrantedAuthority) new SimpleGrantedAuthority("ROLE_" + r))
                     .toList();
-            return new JwtAuthenticationToken(jwt, authorities, jwt.getClaimAsString("preferred_username"));
+            String user = jwt.getClaimAsString("preferred_username");
+            if (user == null) {
+                user = jwt.getSubject();
+            }
+            return new JwtAuthenticationToken(jwt, authorities, user);
         }
     }
 }
