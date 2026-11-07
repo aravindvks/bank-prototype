@@ -2,6 +2,8 @@
 # End-to-end smoke test, using Priya, Ravi and Asha from the HLD flows.
 # Needs: make up (all services running). Uses only curl, grep and sed.
 set -euo pipefail
+# A bare `curl -sf` that gets HTTP 4xx/5xx exits 22 and set -e stops the script; say where, instead of a bare "Error 22".
+trap 'rc=$?; printf "  \033[31mFAIL\033[0m line %s exited %s: %s\n" "$LINENO" "$rc" "$BASH_COMMAND" >&2' ERR
 
 MAPPING=${MAPPING:-http://localhost:8082}
 BFF=${BFF:-http://localhost:8080}
@@ -504,6 +506,18 @@ ess=$(curl -sf "$SIM/essence/v1/accounts/ACC-5501/balance" | field available)
   || fail "Essence balance $ess_after → $ess, expected −25"
 
 echo "27. Statements: Thredd's statement is paid at the minimum; the next is missed, so a £12 late fee is charged and the card goes into arrears"
+# A reused card can be in credit after many local runs; a statement on it has a £0.00 minimum and nothing to test.
+# Spend on the card until it owes £100, so the statement has a real minimum payment.
+bal=$(from_key "$(cc "$PRIYA_H")" accounts | field balance)
+if [ "$(awk "BEGIN { print ($bal < 50) }")" = 1 ]; then
+  top=$(awk "BEGIN { printf \"%.2f\", 100 - $bal }")
+  t=$(curl -sf -X POST "$SIM/thredd/v1/sim/card-tap" -H 'Content-Type: application/json' \
+    -d "{\"token\":\"$CC_TOKEN\",\"amount\":\"$top\",\"merchant\":\"Volt Electronics\",\"channel\":\"chip\"}")
+  echo "$t" | grep -q '"decision":"APPROVE"' || fail "Could not top up the card balance (£$top): $t"
+  curl -sf -X POST "$SIM/thredd/v1/sim/settle" -H 'Content-Type: application/json' \
+    -d "{\"token\":\"$CC_TOKEN\",\"messageId\":\"$(echo "$t" | field messageId)\",\"amount\":\"$top\"}" >/dev/null
+  echo "  (card was £$bal; spent £$top so it owes £100 before the statement)"
+fi
 st=$(curl -sf -X POST "$SIM/thredd/v1/credit/sim/statement" -H 'Content-Type: application/json' -d "{\"accountId\":\"$CC\",\"dueInSeconds\":15}")
 STMT=$(echo "$st" | field statementId); MIN=$(echo "$st" | field minimumPayment)
 [ -n "$STMT" ] && pass "Statement $STMT: balance £$(echo "$st" | field balance), minimum £$MIN" || fail "No statement from Thredd: $st"
