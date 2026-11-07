@@ -129,8 +129,8 @@ cust=$(curl -sf "$MAPPING/v1/customers/$ASHA")
 echo "$cust" | grep -q '"status":"ACTIVE"' && echo "$cust" | grep -q '"kycStatus":"VALID"' \
   && pass "Customer ACTIVE with KYC VALID (orchestrator PATCH calls to the mapping service work)" \
   || fail "Expected ACTIVE and KYC VALID, got $cust"
-ASHA_TOKEN=$(curl -sf "$MAPPING/v1/customers/$ASHA/graph" | grep -o '"entityType":"CARD","externalId":"[^"]*"' | sed 's/.*"externalId":"\([^"]*\)"/\1/')
-[ -n "$ASHA_TOKEN" ] && pass "Mapping holds Asha's KYC case, party, account $ASHA_ACC and card $ASHA_TOKEN" \
+ASHA_CARD=$(curl -sf "$MAPPING/v1/customers/$ASHA/graph" | grep -o '"entityType":"CARD","externalId":"[^"]*"' | sed 's/.*"externalId":"\([^"]*\)"/\1/')
+[ -n "$ASHA_CARD" ] && pass "Mapping holds Asha's KYC case, party, account $ASHA_ACC and card $ASHA_CARD" \
   || fail "No card linked for customer $ASHA"
 
 echo "5. Onboarding: a KYC rejection ends with the customer REJECTED"
@@ -152,7 +152,7 @@ bal=$(curl -sf "$SIM/essence/v1/accounts/$ASHA_ACC/balance" | field available)
 # Let the bank record the £100 (inbound saga) before step 9 freezes Asha, or it is correctly FLAGGED instead.
 for _ in $(seq 1 30); do curl -sf "$BFF/v1/payments" -H "$ASHA_H" | grep -q '"paymentType":"INBOUND","status":"COMPLETED"' && break; sleep 1; done
 tap=$(curl -sf -X POST "$SIM/thredd/v1/sim/card-tap" -H 'Content-Type: application/json' \
-  -d "{\"token\":\"$ASHA_TOKEN\",\"amount\":\"3.50\",\"merchant\":\"Bean There Cafe\"}")
+  -d "{\"token\":\"$ASHA_CARD\",\"amount\":\"3.50\",\"merchant\":\"Bean There Cafe\"}")
 echo "$tap" | grep -q '"decision":"APPROVE"' && pass "Card tap approved: $tap" || fail "Expected APPROVE, got $tap"
 
 echo "7. Card settlement: the cafe settles the £3.50 tap (presentment captures the Essence hold)"
@@ -161,13 +161,13 @@ before=$(curl -sf "$SIM/essence/v1/accounts/$ASHA_ACC/balance")
 echo "$before" | grep -q '"available":"96.50"' && echo "$before" | grep -q '"ledger":"100.00"' \
   && pass "Hold in place: available £96.50, ledger £100.00" || fail "Expected a £3.50 hold, got $before"
 ack=$(curl -sf -X POST "$SIM/thredd/v1/sim/settle" -H 'Content-Type: application/json' \
-  -d "{\"token\":\"$ASHA_TOKEN\",\"messageId\":\"$TAP_MSG\",\"amount\":\"3.50\"}")
+  -d "{\"token\":\"$ASHA_CARD\",\"messageId\":\"$TAP_MSG\",\"amount\":\"3.50\"}")
 after=$(curl -sf "$SIM/essence/v1/accounts/$ASHA_ACC/balance")
 echo "$after" | grep -q '"ledger":"96.50"' && pass "Settled: $after" || fail "Expected ledger 96.50 after settlement, got $after ($ack)"
 
 echo "8. Declines with reasons: not enough money, and the daily card limit"
 tap=$(curl -sf -X POST "$SIM/thredd/v1/sim/card-tap" -H 'Content-Type: application/json' \
-  -d "{\"token\":\"$ASHA_TOKEN\",\"amount\":\"200.00\",\"merchant\":\"Volt Electronics\"}")
+  -d "{\"token\":\"$ASHA_CARD\",\"amount\":\"200.00\",\"merchant\":\"Volt Electronics\"}")
 echo "$tap" | grep -q '"reason":"INSUFFICIENT_FUNDS"' && pass "£200 declined: INSUFFICIENT_FUNDS" || fail "Expected INSUFFICIENT_FUNDS, got $tap"
 tap=$(curl -sf -X POST "$SIM/thredd/v1/sim/card-tap" -H 'Content-Type: application/json' \
   -d "{\"token\":\"$TOKEN\",\"amount\":\"350.00\",\"merchant\":\"Volt Electronics\"}")
@@ -179,7 +179,7 @@ CASE=$(curl -sf "$MAPPING/v1/customers/$ASHA/graph" | grep -o '"entityType":"KYC
 curl -sf -X POST "$SIM/atfinity/v1/sim/cases/$CASE/rescreen-hit" >/dev/null
 for _ in $(seq 1 15); do
   tap=$(curl -sf -X POST "$SIM/thredd/v1/sim/card-tap" -H 'Content-Type: application/json' \
-    -d "{\"token\":\"$ASHA_TOKEN\",\"amount\":\"1.00\",\"merchant\":\"Corner Shop\"}")
+    -d "{\"token\":\"$ASHA_CARD\",\"amount\":\"1.00\",\"merchant\":\"Corner Shop\"}")
   echo "$tap" | grep -q '"reason":"CUSTOMER_FROZEN"' && break
   sleep 2
 done
@@ -251,7 +251,7 @@ done
 echo "$list" | grep -q '"status":"FLAGGED"' && fail "Held payment was not released: $list" || pass "Held £5 released (no FLAGGED payments left)"
 for _ in $(seq 1 10); do
   tap=$(curl -sf -X POST "$SIM/thredd/v1/sim/card-tap" -H 'Content-Type: application/json' \
-    -d "{\"token\":\"$ASHA_TOKEN\",\"amount\":\"1.00\",\"merchant\":\"Corner Shop\"}")
+    -d "{\"token\":\"$ASHA_CARD\",\"amount\":\"1.00\",\"merchant\":\"Corner Shop\"}")
   echo "$tap" | grep -q '"decision":"APPROVE"' && break
   sleep 2
 done
