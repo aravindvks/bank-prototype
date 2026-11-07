@@ -277,8 +277,8 @@ function Bank({ customerId, notify, onSignOut }: { customerId: string; notify: (
           <div className="hero-balance">
             <Amount value={me?.account?.available} />
             <p className="hero-sub">
-              Available in your {me?.customerType === 'BUSINESS' ? 'business ' : ''}current account
-              {me?.account?.sortCode ? <> · <strong className="num">{fmtSort(me.account.sortCode)}</strong> <strong className="num">{me.account.accountNumber}</strong></> : null}
+              {me?.customerType === 'BUSINESS' ? 'Business current account' : 'Current account'}
+              {me?.account?.sortCode ? <> · sort code <strong className="num">{fmtSort(me.account.sortCode)}</strong> · account <strong className="num">{me.account.accountNumber}</strong></> : null}
               {me?.account?.ledger && me.account.ledger !== me.account.available ? ` · ${gbp(me.account.ledger)} including pending card payments` : ''}
             </p>
           </div>
