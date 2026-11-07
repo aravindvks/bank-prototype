@@ -13,7 +13,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * Reconciliation for the dashboards and alerts (LLD section 17):
+ * Reconciliation for the dashboards and alerts (LLD section 15):
  * {@code pbp_recon_exceptions_open{type,queue}} and, per source, the last run's
  * {@code pbp_recon_last_run_matched}, {@code pbp_recon_last_run_exceptions} and
  * {@code pbp_recon_last_run_age_seconds}.

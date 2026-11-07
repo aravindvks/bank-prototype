@@ -8,7 +8,7 @@ import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
 
 /**
- * Observability defaults every service gets from platform-common (LLD section 17), added with the
+ * Observability defaults every service gets from platform-common (LLD section 15), added with the
  * lowest precedence so a service's application.yml or an environment variable can still override them.
  *
  * <ul>

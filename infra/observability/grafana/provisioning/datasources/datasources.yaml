@@ -1,4 +1,4 @@
-# Grafana data sources (LLD section 17): metrics, traces and logs, linked both ways.
+# Grafana data sources (LLD section 15): metrics, traces and logs, linked both ways.
 apiVersion: 1
 datasources:
   - name: Prometheus

@@ -12,7 +12,7 @@ import org.springframework.kafka.listener.RecordInterceptor;
 
 /**
  * Restores the correlation ID from the Kafka header before each listener call, and clears it after.
- * Also counts the record and how long it took to arrive (LLD section 17). The trace itself is continued
+ * Also counts the record and how long it took to arrive (LLD section 15). The trace itself is continued
  * by the listener observation from the {@code traceparent} header.
  */
 public class CorrelationRecordInterceptor implements RecordInterceptor<Object, Object> {

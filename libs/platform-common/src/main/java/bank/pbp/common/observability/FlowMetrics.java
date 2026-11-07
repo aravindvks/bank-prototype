@@ -7,7 +7,7 @@ import java.time.Instant;
 import java.util.regex.Pattern;
 
 /**
- * The shared metric names behind the flow dashboards and alerts (LLD section 17). Recorded on
+ * The shared metric names behind the flow dashboards and alerts (LLD section 15). Recorded on
  * Micrometer's global registry, which Spring Boot connects to Prometheus; in unit tests it is a no-op.
  *
  * <p>Labels stay low-cardinality: event types, statuses and reason codes only. Customer, payment and

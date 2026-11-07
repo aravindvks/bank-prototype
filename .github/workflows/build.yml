@@ -66,7 +66,7 @@ jobs:
           helm lint deploy/helm/pbp 2>&1 | tee helm.log
           helm template pbp-dev deploy/helm/pbp > rendered.yaml
           helm template pbp-demo deploy/helm/pbp -f deploy/helm/pbp/values-demo.yaml > rendered-demo.yaml
-          # Observability on: alert rules and dashboards packaged as the deploy workflow does (LLD section 17).
+          # Observability on: alert rules and dashboards packaged as the deploy workflow does (LLD section 15).
           mkdir -p deploy/helm/pbp/files && cp -r infra/observability deploy/helm/pbp/files/
           helm template pbp-obs deploy/helm/pbp --set observability.enabled=true > rendered-obs.yaml
           grep -q "kind: PrometheusRule" rendered-obs.yaml && grep -q "dashboard-pbp-payments" rendered-obs.yaml

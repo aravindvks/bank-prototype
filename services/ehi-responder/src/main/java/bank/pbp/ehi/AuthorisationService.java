@@ -85,7 +85,7 @@ public class AuthorisationService {
         Decision decision = new Decision(msg.messageId(), outcome.decision(), outcome.reason(), latencyMs);
         String correlationId = Correlation.current().orElse(null);
         afterResponse.submit(() -> record(msg, card, outcome, decision, correlationId));
-        // The EHI time budget (LLD section 17): p99 of this timer against pbp.ehi.essence-timeout-ms.
+        // The EHI time budget (LLD section 15): p99 of this timer against pbp.ehi.essence-timeout-ms.
         Timer.builder("pbp.ehi.decision")
                 .tag("type", FlowMetrics.label(msg.messageType()))
                 .tag("decision", FlowMetrics.label(decision.decision()))

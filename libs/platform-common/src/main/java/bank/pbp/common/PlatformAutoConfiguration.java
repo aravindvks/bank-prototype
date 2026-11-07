@@ -73,7 +73,7 @@ public class PlatformAutoConfiguration {
         }
     }
 
-    /** Observability (LLD section 17): correlation ID on spans, traceparent for the outbox. */
+    /** Observability (LLD section 15): correlation ID on spans, traceparent for the outbox. */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = "io.micrometer.observation.ObservationFilter")
     static class ObservabilityWiring {

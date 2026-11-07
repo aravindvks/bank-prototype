@@ -60,7 +60,7 @@ subprojects { sub ->
             implementation 'org.springframework.boot:spring-boot-starter-web'
             implementation 'org.springframework.boot:spring-boot-starter-actuator'
             implementation 'org.springframework.boot:spring-boot-starter-validation'
-            // Observability (LLD section 17): traces over OTLP, metrics for Prometheus. Versions from the Boot BOM.
+            // Observability (LLD section 15): traces over OTLP, metrics for Prometheus. Versions from the Boot BOM.
             implementation 'io.micrometer:micrometer-tracing-bridge-otel'
             implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
             runtimeOnly 'io.micrometer:micrometer-registry-prometheus'

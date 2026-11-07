@@ -1,4 +1,4 @@
-# Tempo, single binary, local disk (LLD section 17). Traces kept for 48 hours locally.
+# Tempo, single binary, local disk (LLD section 15). Traces kept for 48 hours locally.
 server:
   http_listen_port: 3200
 distributor:

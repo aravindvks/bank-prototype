@@ -103,7 +103,7 @@ Infrastructure only, for running services from the IDE: `make infra`.
 26. Metrics, alerts and logs: Prometheus scrapes all 9 services, payment and card flow metrics are recorded, the alert rules are loaded, and Loki finds the payment's log lines by correlation ID
 27. Login: no token → 401; customer on the staff API → 403; view-only staff cannot run reconciliation; Asha's login linked at sign-up
 
-## Observability (LLD section 17)
+## Observability (LLD section 15)
 
 One standard, set once in `libs/platform-common`, so no service wires it itself:
 
@@ -199,4 +199,4 @@ that class is written. Nothing outside the adapter changes.
 - **The orchestrator chooses FPS or CHAPS**, not Finastra: the customer picks CHAPS for large same-day payments, and the bank's CHAPS hours, fee and limits are its tariff. The LLD said Finastra routes to the scheme.
 - **Confirmation of Payee is checked twice**: the app checks before the customer pays, and the payment saga checks again, so a client cannot skip it by sending `copResult: MATCH`. UNAVAILABLE goes ahead (bank policy left open in the LLD).
 - `mapping_audit` is listed in the table set but had no DDL; it is defined in `services/mapping-service/src/main/resources/db/migration/V1__mapping_schema.sql`.
-- **Observability (not in the LLD; section 17 added).** Every outbox table has a `traceparent` column, and the Debezium connector copies `traceparent` and `created_at` into the Kafka headers `traceparent` and `occurredAt`. The orchestration schema adds `flow_metrics_watermark` (orchestration `V5__flow_metrics_watermark.sql`), so replicas count each status change once. The LLD's log format `[COR-…]` becomes `[service,trace=…,span=…,cid=COR-…]`.
+- **Observability as built differs from LLD section 15** (the LLD now has an "As built" part). Metric names follow Micrometer (`pbp_*`, `http_*_requests_seconds`) instead of the planned `ehi_decision_latency_ms` and friends; logs are plain text with trace and correlation IDs rather than JSON. Every outbox table has a `traceparent` column, and the Debezium connector copies `traceparent` and `created_at` into the Kafka headers `traceparent` and `occurredAt`. The orchestration schema adds `flow_metrics_watermark` (orchestration `V5__flow_metrics_watermark.sql`), so replicas count each status change once. The LLD's log format `[COR-…]` becomes `[service,trace=…,span=…,cid=COR-…]`.

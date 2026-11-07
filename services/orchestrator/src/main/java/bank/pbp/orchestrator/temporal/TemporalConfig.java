@@ -45,7 +45,7 @@ public class TemporalConfig {
 
     /**
      * Temporal SDK metrics (task latency, failures, polls) on the application's Micrometer registry, so
-     * Prometheus scrapes them with everything else (LLD section 17).
+     * Prometheus scrapes them with everything else (LLD section 15).
      */
     @Bean
     WorkflowServiceStubs workflowServiceStubs(@Value("${temporal.target}") String target, MeterRegistry registry) {

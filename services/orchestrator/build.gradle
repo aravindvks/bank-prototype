@@ -1,7 +1,7 @@
 // Orchestrator: Temporal workflows that glue the vendors together for every journey (LLD section 3).
 dependencies {
     implementation "io.temporal:temporal-sdk:${rootProject.temporalVersion}"
-    // Observability (LLD section 17): workflow and activity spans join the caller's trace.
+    // Observability (LLD section 15): workflow and activity spans join the caller's trace.
     implementation "io.temporal:temporal-opentracing:${rootProject.temporalVersion}"
     implementation 'io.opentelemetry:opentelemetry-opentracing-shim:1.37.0'   // same OpenTelemetry release as Spring Boot 3.3.5
     implementation 'org.springframework.boot:spring-boot-starter-jdbc'

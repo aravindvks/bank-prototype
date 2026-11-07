@@ -19,7 +19,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Turns the orchestration tables into the flow metrics behind the dashboards and the "stuck" alerts
- * (LLD section 17). Reading our own tables means a payment that silently stops moving still shows up,
+ * (LLD section 15). Reading our own tables means a payment that silently stops moving still shows up,
  * without a metric call in every workflow (workflow code must stay deterministic).
  *
  * <ul>

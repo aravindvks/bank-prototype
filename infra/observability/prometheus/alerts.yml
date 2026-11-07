@@ -1,4 +1,4 @@
-# Alert rules for every flow (LLD section 17). Grafana shows them under Alerting; on OCI the same file
+# Alert rules for every flow (LLD section 15). Grafana shows them under Alerting; on OCI the same file
 # is loaded by the in-cluster Prometheus. severity: page = act now, ticket = next working day.
 # Thresholds are prototype starting points; the ones marked DECISION need the business to confirm.
 groups:

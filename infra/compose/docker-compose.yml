@@ -119,7 +119,7 @@ services:
       TEMPORAL_ADDRESS: temporal:7233
     ports: ["8233:8080"]
 
-  # ---------- Observability (LLD section 17): Grafana on http://localhost:3001 ----------
+  # ---------- Observability (LLD section 15): Grafana on http://localhost:3001 ----------
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.111.0
     command: ["--config=/etc/otel/config.yaml"]
@@ -222,7 +222,7 @@ services:
       RECON_URL: http://recon-service:8087
       # Local demos: Direct Debits due today are decided at once rather than at 06:00 UK time.
       DD_ENTRY_TIME: "00:00"
-      # Traces to the collector (LLD section 17); every request sampled locally.
+      # Traces to the collector (LLD section 15); every request sampled locally.
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       PBP_ENV: local
     depends_on: &app-deps

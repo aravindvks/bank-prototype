@@ -1,4 +1,4 @@
-# OpenTelemetry Collector (LLD section 17). Every service sends OTLP here; this is the one place that
+# OpenTelemetry Collector (LLD section 15). Every service sends OTLP here; this is the one place that
 # decides where traces go. Locally: Tempo. On OCI: Tempo in the cluster, and OCI APM if enabled
 # (see deploy/helm/pbp/values.yaml, observability.ociApm).
 receivers:

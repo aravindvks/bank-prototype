@@ -1,5 +1,5 @@
 {{- /*
-Observability on OKE (LLD section 17): the same Grafana, Prometheus, Tempo and Loki as locally, installed
+Observability on OKE (LLD section 15): the same Grafana, Prometheus, Tempo and Loki as locally, installed
 from their upstream charts into the "observability" namespace (kube-prometheus-stack, tempo, loki,
 opentelemetry-collector). This chart only adds what is ours: the scrape config, the alert rules and the
 dashboards. The deploy workflow copies infra/observability into files/observability before helm runs.

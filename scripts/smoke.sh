@@ -439,7 +439,7 @@ else
   echo "  SKIP Kafka Connect not reachable at $CONNECT (services are in direct mode)"
 fi
 
-# ---- Observability (LLD section 17). Skipped when the Grafana stack is not running. ----
+# ---- Observability (LLD section 15). Skipped when the Grafana stack is not running. ----
 # Service names in one Tempo trace, space separated.
 trace_services() { curl -s "$TEMPO/api/traces/$1" | { grep -o '"key":"service.name","value":{"stringValue":"[^"]*"' || true; } \
   | sed 's/.*"stringValue":"\(.*\)"/\1/' | sort -u | tr '\n' ' '; }

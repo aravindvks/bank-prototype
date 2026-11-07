@@ -8,7 +8,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * connection) and deletes it again in the same transaction. Debezium's outbox event router reads
  * the insert from the write-ahead log and publishes the payload to the row's topic, keyed by
  * aggregate_id, with type, correlationId, eventId, traceparent and occurredAt as Kafka headers, so the
- * consumer's trace continues the producer's (LLD section 17).
+ * consumer's trace continues the producer's (LLD section 15).
  */
 public class OutboxWriter {
 

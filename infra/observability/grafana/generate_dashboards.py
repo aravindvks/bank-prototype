@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates the Grafana dashboards in dashboards/ (LLD section 17).
+"""Generates the Grafana dashboards in dashboards/ (LLD section 15).
 
 Edit this file, not the JSON: python3 infra/observability/grafana/generate_dashboards.py
 One dashboard per flow, plus an overview and a platform dashboard. Every panel reads Prometheus,

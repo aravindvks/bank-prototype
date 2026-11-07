@@ -1,4 +1,4 @@
-# Prometheus (LLD section 17): scrapes every service's /actuator/prometheus, Temporal and Kafka lag.
+# Prometheus (LLD section 15): scrapes every service's /actuator/prometheus, Temporal and Kafka lag.
 global:
   scrape_interval: 15s
   evaluation_interval: 15s

@@ -1,4 +1,4 @@
-# Ships every compose container's stdout to Loki, labelled by compose service (LLD section 17).
+# Ships every compose container's stdout to Loki, labelled by compose service (LLD section 15).
 server:
   http_listen_port: 9080
 positions:
