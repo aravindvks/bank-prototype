@@ -452,6 +452,12 @@ promq() { curl -s -G "$PROM/api/v1/query" --data-urlencode "query=$1" \
   | { grep -o '"value":\[[^]]*\]' || true; } | head -1 | sed 's/.*,"\(.*\)"\]/\1/'; }
 has_all() { for s in $2; do echo " $1 " | grep -q " $s " || return 1; done; }
 
+# With Prometheus up the observability stack is running, so Tempo and Loki must answer too (they take ~20 s to be ready).
+if curl -sf "$PROM/-/ready" >/dev/null 2>&1; then
+  for _ in $(seq 1 30); do curl -sf "$TEMPO/ready" >/dev/null 2>&1 && curl -sf "$LOKI/ready" >/dev/null 2>&1 && break; sleep 2; done
+  curl -sf "$TEMPO/ready" >/dev/null 2>&1 || fail "Prometheus is up but Tempo is not ready at $TEMPO (docker compose logs tempo)"
+  curl -sf "$LOKI/ready" >/dev/null 2>&1 || fail "Prometheus is up but Loki is not ready at $LOKI (docker compose logs loki)"
+fi
 if curl -sf "$TEMPO/ready" >/dev/null 2>&1; then
   echo "24. Tracing: Priya's £25 payment is one trace from the BFF through Kafka and Temporal to the Essence adapter"
   want="bff orchestrator essence-adapter"; found=""; seen=""

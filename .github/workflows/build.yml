@@ -126,6 +126,16 @@ jobs:
           set -o pipefail
           ./scripts/smoke.sh 2>&1 | tee smoke.log
 
+      - name: Observability stack status
+        if: always()
+        run: |
+          docker compose -f infra/compose/docker-compose.yml ps -a otel-collector tempo prometheus loki promtail grafana kafka-exporter || true
+          for s in tempo loki otel-collector promtail; do
+            echo "---- $s ----"; docker compose -f infra/compose/docker-compose.yml logs --no-color --tail 25 $s 2>&1 || true
+          done
+          curl -s -o /dev/null -w 'tempo /ready %{http_code}\n' http://localhost:3200/ready || true
+          curl -s -o /dev/null -w 'loki /ready %{http_code}\n' http://localhost:3100/ready || true
+
       - name: Report failed checks
         if: failure()
         run: |
