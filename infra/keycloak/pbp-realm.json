@@ -1,7 +1,7 @@
 {
   "realm": "pbp",
   "enabled": true,
-  "displayName": "Banking Platform Prototype",
+  "displayName": "Sutherland Banking Platform",
   "registrationAllowed": true,
   "loginWithEmailAllowed": true,
   "accessTokenLifespan": 3600,
@@ -16,7 +16,7 @@
   "clients": [
     {
       "clientId": "pbp-web",
-      "name": "Banking Platform Prototype web app",
+      "name": "Sutherland Banking Platform web app",
       "publicClient": true,
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,

@@ -1,4 +1,4 @@
-# Banking Platform Prototype — OCI UK cell (HLD section 8, LLD section 13).
+# Sutherland Banking Platform — OCI UK cell (HLD section 8, LLD section 13).
 
 variable "region" {
   description = "OCI region. The UK cell runs in UK South (London)."

@@ -1,4 +1,4 @@
-// Banking Platform Prototype — root build.
+// Sutherland Banking Platform — root build.
 // Every module is Java 21 and uses the Spring Boot BOM; deployable modules also apply the Boot plugin.
 plugins {
     id 'org.springframework.boot' version '3.3.5' apply false

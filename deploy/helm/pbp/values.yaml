@@ -1,4 +1,4 @@
-# Banking Platform Prototype on OKE. One release per environment: helm upgrade --install pbp-dev . -f values-dev.yaml
+# Sutherland Banking Platform on OKE. One release per environment: helm upgrade --install pbp-dev . -f values-dev.yaml
 
 image:
   registry: uk-london-1.ocir.io/NAMESPACE/pbp   # from terraform output "registry"

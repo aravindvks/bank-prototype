@@ -245,7 +245,7 @@ done
 echo "$list" | grep -q '"status":"FLAGGED"' && pass "£5 to frozen Asha recorded as FLAGGED for review" || fail "Expected a FLAGGED inbound payment: $list"
 
 echo "13. Web app: served by nginx, talking to the BFF"
-curl -sf "$WEB/" | grep -q "Banking Platform Prototype" && pass "Web app is up at $WEB" || fail "Web app not served at $WEB"
+curl -sf "$WEB/" | grep -q "Sutherland Banking Platform" && pass "Web app is up at $WEB" || fail "Web app not served at $WEB"
 me=$(curl -sf "$WEB/v1/me" -H "$PRIYA_H")
 echo "$me" | grep -q '"accountId":"ACC-5501"' && pass "Home screen data through the web app: $(echo "$me" | head -c 160)…" \
   || fail "Unexpected /v1/me through the web app: $me"

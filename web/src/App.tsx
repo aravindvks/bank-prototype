@@ -112,7 +112,7 @@ function Welcome({ onReady, notify }: { onReady: (id: string) => void; notify: (
     <div className="welcome">
     <main className="shell narrow">
       <header className="stack">
-        <span className="wordmark">Banking Platform Prototype</span>
+        <span className="wordmark">Sutherland Banking Platform</span>
         <h1 className="intro">A UK current account, opened in a minute.</h1>
         <p className="intro-sub">Identity checked by Atfinity, account by Finastra, card by Thredd: all running on simulators. Staff work in the <a href="/staff">Control Room</a>.</p>
       </header>
@@ -267,7 +267,7 @@ function Bank({ customerId, notify, onSignOut }: { customerId: string; notify: (
       <header className="hero">
         <div className="hero-inner">
           <div className="hero-top">
-            <span className="wordmark">Banking Platform Prototype</span>
+            <span className="wordmark">Sutherland Banking Platform</span>
             <span className="spacer" />
             <span className="hero-who">{me?.account?.name ?? 'Loading…'}</span>
             <span className={`live ${live ? 'on' : ''}`} title={live ? 'Updates arrive as they happen' : 'Reconnecting'}>{live ? 'Live' : 'Offline'}</span>

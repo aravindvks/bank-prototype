@@ -124,7 +124,7 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
         <div className="staff-bar-inner">
           <span className="staff-badge">Staff only</span>
           <strong className="staff-title">Control Room</strong>
-          <span className="staff-sub">Banking Platform Prototype · operations and compliance</span>
+          <span className="staff-sub">Sutherland Banking Platform · operations and compliance</span>
           <span className="spacer" />
           <label className="staff-user">Signed in as
             {auth.enabled
