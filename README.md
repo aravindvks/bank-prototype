@@ -91,7 +91,7 @@ Infrastructure only, for running services from the IDE: `make infra`.
 17. Confirmation of Payee: MATCH, CLOSE_MATCH (with the real name), NO_MATCH and UNAVAILABLE; a payment to a name that does not match is REJECTED (PAY-COP-001); a close match the customer confirmed goes through
 18. Standing order: monthly, first payment today, next due a month later, then cancelled; a payment scheduled for tomorrow, made early with the demo "pay now"
 19. Bacs Direct Credit: a salary file from ACME LTD is recorded as an inbound Bacs credit
-20. Direct Debits: an originator's mandate (AUDDIS) becomes ACTIVE; a £30 collection is paid; a £90,000 one is returned unpaid (ARUDD 0); the £30 is refunded under the Direct Debit Guarantee; Priya cancels the mandate and the next collection is returned (ARUDD 1)
+20. Direct Debits: an originator's mandate (AUDDIS) becomes ACTIVE; a £30 collection is paid; one larger than her balance is returned unpaid (ARUDD 0); the £30 is refunded under the Direct Debit Guarantee; Priya cancels the mandate and the next collection is returned (ARUDD 1)
 21. CHAPS: £12,000 is HELD for staff approval, appears in the Control Room, is approved, then settles with a £20 fee inside CHAPS hours, or waits QUEUED outside them
 22. Reconciliation: payments, fees, Bacs credits, Direct Debits and card settlements match Essence with zero exceptions; a rogue posting is reported
 23. Outbox relay: the Debezium connector is running after carrying every event above
