@@ -27,17 +27,18 @@ fi
 
 pass() { printf '  \033[32mPASS\033[0m %s\n' "$1"; }
 fail() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; exit 1; }
-field() { grep -o "\"$1\":\"[^\"]*\"" | head -1 | sed "s/\"$1\":\"\(.*\)\"/\1/"; }
+# Value of a JSON string field; empty (not a failure) when the field is not there yet, e.g. while polling.
+field() { { grep -o "\"$1\":\"[^\"]*\"" || true; } | head -1 | sed "s/\"$1\":\"\(.*\)\"/\1/"; }
 uuid() { cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen | tr 'A-Z' 'a-z'; }
 # Top-level status of a payment (GET /v1/payments/{id}); history entries use from/to, not status.
-pstatus() { curl -s "$BFF/v1/payments/$1" -H "$PRIYA_H" | grep -o '"status":"[A-Z_]*"' | head -1 | sed 's/.*:"\(.*\)"/\1/'; }
+pstatus() { curl -s "$BFF/v1/payments/$1" -H "$PRIYA_H" | { grep -o '"status":"[A-Z_]*"' || true; } | head -1 | sed 's/.*:"\(.*\)"/\1/'; }
 # Waits until a payment reaches one of the statuses in $2 (a grep -E pattern); prints the payment.
 wait_payment() { local p st; for _ in $(seq 1 "${3:-20}"); do st=$(pstatus "$1"); echo "$st" | grep -qE "^($2)$" && break; sleep 1; done
   curl -s "$BFF/v1/payments/$1" -H "$PRIYA_H"; }
 # Payment ID of the row in a payments list with the given Finastra or Bacs reference.
-row_id() { echo "$1" | grep -oE "\"paymentId\":\"[^\"]*\",\"correlationId\":\"[^\"]*\",\"customerId\":\"[^\"]*\",\"debitAccount\":\"[^\"]*\",\"creditor\":\"(\\\\.|[^\"\\\\])*\",\"amount\":\"[^\"]*\",\"currency\":\"[^\"]*\",\"paymentType\":\"[^\"]*\",\"status\":\"[^\"]*\",\"finastraRef\":\"$2\"" | head -1 | field paymentId; }
+row_id() { echo "$1" | { grep -oE "\"paymentId\":\"[^\"]*\",\"correlationId\":\"[^\"]*\",\"customerId\":\"[^\"]*\",\"debitAccount\":\"[^\"]*\",\"creditor\":\"(\\\\.|[^\"\\\\])*\",\"amount\":\"[^\"]*\",\"currency\":\"[^\"]*\",\"paymentType\":\"[^\"]*\",\"status\":\"[^\"]*\",\"finastraRef\":\"$2\"" || true; } | head -1 | field paymentId; }
 # The fields of one schedule or mandate in a list, from its ID to the end of that entry.
-entry() { echo "$1" | grep -o "\"$2\":\"$3\".*" | sed "s/\"$4\".*//"; }
+entry() { echo "$1" | { grep -o "\"$2\":\"$3\".*" || true; } | sed "s/\"$4\".*//"; }
 pay() { curl -sf -X POST "$BFF/v1/payments" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuid)" -H "$PRIYA_H" -d "$1" | field paymentId; }
 
 echo "1. Priya's customer record and vendor links (mapping service)"
@@ -181,7 +182,7 @@ resp=$(curl -sf -X POST "$BFF/v1/payments" -H 'Content-Type: application/json' -
   -d '{"debtorAccount":"ACC-5501","creditor":{"name":"Arjun Mehta","sortCode":"040004","accountNumber":"12345678"},"amount":{"value":"15.00","currency":"GBP"},"remittanceInfo":"Dinner","copResult":"MATCH"}')
 OUT=$(echo "$resp" | field paymentId)
 for _ in $(seq 1 20); do
-  p=$(curl -s "$BFF/v1/payments/$OUT" -H "$PRIYA_H"); state=$(echo "$p" | grep -o '"status":"[A-Z_]*"' | head -1 | sed 's/.*:"\(.*\)"/\1/')
+  p=$(curl -s "$BFF/v1/payments/$OUT" -H "$PRIYA_H"); state=$(pstatus "$OUT")
   [ "$state" = "COMPLETED" ] || [ "$state" = "REJECTED" ] || [ "$state" = "FAILED" ] && break
   sleep 1
 done
@@ -194,7 +195,7 @@ resp=$(curl -sf -X POST "$BFF/v1/payments" -H 'Content-Type: application/json' -
   -d '{"debtorAccount":"ACC-5501","creditor":{"name":"Nobody","sortCode":"990000","accountNumber":"00000000"},"amount":{"value":"10.00","currency":"GBP"},"remittanceInfo":"Test"}')
 REJ=$(echo "$resp" | field paymentId)
 for _ in $(seq 1 20); do
-  p=$(curl -s "$BFF/v1/payments/$REJ" -H "$PRIYA_H"); state=$(echo "$p" | grep -o '"status":"[A-Z_]*"' | head -1 | sed 's/.*:"\(.*\)"/\1/')
+  p=$(curl -s "$BFF/v1/payments/$REJ" -H "$PRIYA_H"); state=$(pstatus "$REJ")
   [ "$state" = "REJECTED" ] || [ "$state" = "COMPLETED" ] || [ "$state" = "FAILED" ] && break
   sleep 1
 done
