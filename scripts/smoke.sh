@@ -72,6 +72,15 @@ else
   PRIYA_H="X-Customer-Id: $CUSTOMER"
 fi
 
+# The simulator keeps balances between runs, and each run spends some of Priya's money: top her up to £2,000.
+avail=$(curl -sf "$SIM/essence/v1/accounts/ACC-5501/balance" | field available)
+topup=$(awk "BEGIN { t = 2000 - ${avail:-0}; if (t > 0) printf \"%.2f\", t }")
+if [ -n "$topup" ]; then
+  curl -sf -X POST "$SIM/essence/v1/sim/inbound" -H 'Content-Type: application/json' \
+    -d "{\"creditAccountId\":\"ACC-5501\",\"amount\":\"$topup\",\"debtorName\":\"Priya Shah\",\"reference\":\"Test top-up\"}" >/dev/null
+  pass "Topped up Priya's available balance from £$avail to £2,000.00 (balances persist between runs)"
+fi
+
 echo "2. Card tap: £3.50 at a cafe (EHI responder)"
 auth=$(curl -sf -X POST "$EHI/ehi/v1/messages" -H 'Content-Type: application/json' \
   -d "{\"messageId\":\"EHI-$(uuid)\",\"messageType\":\"AUTHORISATION\",\"cardToken\":\"$TOKEN\",\"amount\":\"3.50\",\"currency\":\"GBP\",\"merchant\":{\"name\":\"Bean There Cafe\",\"mcc\":\"5814\",\"channel\":\"contactless\"}}")
@@ -346,9 +355,11 @@ dd_row() { for _ in $(seq 1 20); do list=$(curl -sf "$BFF/v1/payments" -H "$PRIY
   echo "$list" | grep -q "\"paymentType\":\"DIRECT_DEBIT\",\"status\":\"$2\",\"finastraRef\":\"$1\"" && break; sleep 1; done; row_id "$list" "$1"; }
 C1=$(collect 30.00); DD1=$(dd_row "$C1" COMPLETED)
 [ -n "$DD1" ] && pass "£30 collection $C1 paid on its due date (payment $DD1)" || fail "Collection $C1 not paid: $(curl -sf "$BFF/v1/payments" -H "$PRIYA_H" | head -c 400)"
-C2=$(collect 90000.00); DD2=$(dd_row "$C2" RETURNED)
+# More than Priya has (balances build up over runs, so it is worked out from her balance now).
+BIG=$(awk "BEGIN { printf \"%.2f\", $(curl -sf "$SIM/essence/v1/accounts/ACC-5501/balance" | field available) + 1000 }")
+C2=$(collect "$BIG"); DD2=$(dd_row "$C2" RETURNED)
 p=$(curl -s "$BFF/v1/payments/$DD2" -H "$PRIYA_H")
-echo "$p" | grep -q 'ARUDD 0' && pass "£90,000 collection returned unpaid: ARUDD 0 (refer to payer, not enough money)" || fail "Expected an ARUDD 0 return, got $p"
+echo "$p" | grep -q 'ARUDD 0' && pass "£$BIG collection (more than her balance) returned unpaid: ARUDD 0 (refer to payer)" || fail "Expected an ARUDD 0 return, got $p"
 curl -sf -X POST "$BFF/v1/direct-debits/claims" -H 'Content-Type: application/json' -H "$PRIYA_H" -d "{\"paymentId\":\"$DD1\"}" >/dev/null
 p=$(wait_payment "$DD1" "REFUNDED")
 echo "$p" | grep -q '"status":"REFUNDED"' && pass "Direct Debit Guarantee: £30 refunded at once, indemnity claim raised on the originator" \
