@@ -78,6 +78,9 @@ a { color: var(--navy-2); text-underline-offset: 3px; }
 .tag { font-size: 13px; font-weight: 600; color: var(--muted); margin-right: 4px; }
 .band select, .bbtn { background: var(--surface); border: 1px solid var(--line-2); color: var(--fg); border-radius: var(--r-ctl); padding: 4px 10px; font-size: 13px; }
 .bbtn:hover:not(:disabled) { border-color: var(--navy-2); }
+a.bbtn { text-decoration: none; }
+.cid { color: inherit; text-decoration: underline dotted; text-underline-offset: 2px; }
+.cid:hover { color: var(--navy-2); }
 .bbtn.primary { background: var(--navy); border-color: var(--navy); color: var(--accent-ink); font-weight: 600; }
 
 /* ---------- controls ---------- */

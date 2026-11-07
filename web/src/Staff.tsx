@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, auth, authHeaders, gbp, toDate } from './api';
+import { dashboardUrl, journeyUrl } from './observability';
+
+/** A correlation ID that opens its journey in Grafana when VITE_GRAFANA_URL is set; plain text otherwise. */
+function Cid({ id }: { id?: string | null }) {
+  const url = journeyUrl(id);
+  if (!url) return <>{id}</>;
+  return <a className="cid" href={url} target="_blank" rel="noreferrer" title="Open this journey in Grafana (logs and traces)"
+    onClick={(e) => e.stopPropagation()}>{id}</a>;
+}
 
 type Row = Record<string, string | null>;
 type Queue = { reviews: Row[]; flaggedPayments: Row[]; heldPayments?: Row[]; creditReferrals?: Row[]; creditArrears?: Row[]; stuckSagas: Row[] };
@@ -132,6 +141,8 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
               : <input id="staff" value={staff} onChange={(e) => setStaff(e.target.value)} />}
           </label>
           {auth.enabled && <button className="staff-link linklike" onClick={auth.logout}>Sign out</button>}
+          {dashboardUrl() && <a className="staff-link" href={dashboardUrl()!} target="_blank" rel="noreferrer"
+            title="Grafana: flow dashboards, alerts, logs and traces">Observability ↗</a>}
           <a className="staff-link" href="/">Customer app</a>
         </div>
       </div>
@@ -153,7 +164,7 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
                   <tr key={r.sagaId}>
                     <td>
                       <div className="mono small">{r.customerId}</div>
-                      <div className="meta">Screening hit · frozen since {fmt(r.startedAt)} · {r.correlationId}</div>
+                      <div className="meta">Screening hit · frozen since {fmt(r.startedAt)} · <Cid id={r.correlationId} /></div>
                       <input className="note" id={`note-${r.sagaId}`} placeholder="Review note" value={notes[r.sagaId!] ?? ''}
                         onChange={(e) => setNotes({ ...notes, [r.sagaId!]: e.target.value })} />
                     </td>
@@ -181,7 +192,7 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
                     <tr key={p.paymentId}>
                       <td>
                         <div><strong>{gbp(p.amount)}</strong> to {c.name ?? '—'} · {p.paymentType === 'CHAPS' ? 'CHAPS' : p.paymentType === 'INTERNAL' ? 'same bank' : 'Faster Payment'}</div>
-                        <div className="meta">{c.sortCode ? `${c.sortCode} ${c.accountNumber} · ` : ''}held {fmt(p.createdAt)} · {p.correlationId}</div>
+                        <div className="meta">{c.sortCode ? `${c.sortCode} ${c.accountNumber} · ` : ''}held {fmt(p.createdAt)} · <Cid id={p.correlationId} /></div>
                         <input className="note" id={`note-${p.paymentId}`} placeholder="Decision note" value={notes[p.paymentId!] ?? ''}
                           onChange={(e) => setNotes({ ...notes, [p.paymentId!]: e.target.value })} />
                       </td>
@@ -208,7 +219,7 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
                   <tr key={a.applicationId}>
                     <td>
                       <div><strong>{a.name ?? '—'}</strong> asks for {gbp(a.requestedLimit)} · income {gbp(a.annualIncome)} · engine limit {gbp(a.engineLimit)}</div>
-                      <div className="meta">{a.reasons ?? ''} · received {fmt(a.createdAt)} · {a.correlationId}</div>
+                      <div className="meta">{a.reasons ?? ''} · received {fmt(a.createdAt)} · <Cid id={a.correlationId} /></div>
                       <div className="row">
                         <input className="note" placeholder={`Limit (default ${a.engineLimit ?? '—'})`} value={limits[a.applicationId!] ?? ''}
                           onChange={(e) => setLimits({ ...limits, [a.applicationId!]: e.target.value })} aria-label="Approved limit" />
@@ -301,7 +312,8 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
         </div>
         {journey && (
           <div className="stack">
-            <p className="muted small">{journey.sagas.length} saga(s), {journey.payments.length} payment(s) for {journey.correlationId}</p>
+            <p className="muted small">{journey.sagas.length} saga(s), {journey.payments.length} payment(s) for <Cid id={journey.correlationId} />
+              {journeyUrl(journey.correlationId) && <> · <a href={journeyUrl(journey.correlationId)!} target="_blank" rel="noreferrer">Logs and trace in Grafana ↗</a></>}</p>
             {journey.sagas.map((s) => <div key={s.sagaId} className="line"><strong>{s.type}</strong> · {s.step} · <span className="pill p-n">{s.status}</span></div>)}
             <ol className="timeline">
               {journey.paymentHistory.map((h, i) => (
@@ -322,7 +334,7 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
             <tbody>
               {sagas.map((s) => (
                 <tr key={s.sagaId} className="click" onClick={() => { setSearch(s.correlationId ?? ''); }}>
-                  <td><strong>{s.type}</strong><div className="meta">{s.correlationId}</div></td>
+                  <td><strong>{s.type}</strong><div className="meta"><Cid id={s.correlationId} /></div></td>
                   <td>{s.step}</td>
                   <td><span className={`pill ${s.status === 'COMPLETED' ? 'p-ok' : s.status === 'FAILED' ? 'p-bad' : 'p-n'}`}>{s.status}</span></td>
                   <td className="meta">{fmt(s.updatedAt)}</td>

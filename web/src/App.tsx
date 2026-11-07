@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, auth, demo, gbp, toDate, ApiError, type CardControls, type Cop, type CreditCards, type Mandate, type Me, type Onboarding, type Payment, type Schedule } from './api';
 import CreditCardView from './CreditCard';
 import Staff from './Staff';
+import { dashboardUrl, journeyUrl } from './observability';
 
 const STORAGE_KEY = 'pbp.customerId';
 const ONBOARDING_STEPS = [
@@ -650,7 +651,8 @@ function PaymentDetail({ id, back, customerId, notify }: { id: string; back: () 
             <div className="row"><span className="balance small num">{gbp(p.amount)}</span><Pill status={p.status} /></div>
           </div>
           <dl className="kv">
-            <div><dt>Correlation ID</dt><dd className="mono small">{p.correlationId}</dd></div>
+            <div><dt>Correlation ID</dt><dd className="mono small">{p.correlationId}
+              {journeyUrl(p.correlationId) && <> · <a href={journeyUrl(p.correlationId)!} target="_blank" rel="noreferrer">trace ↗</a></>}</dd></div>
             <div><dt>Payment ID</dt><dd className="mono small">{p.paymentId}</dd></div>
             {p.finastraRef && <div><dt>{p.paymentType === 'DIRECT_DEBIT' ? 'Bacs reference' : 'Finastra reference'}</dt><dd className="mono small">{p.finastraRef}</dd></div>}
             {p.copResult && <div><dt>Name check</dt><dd>{p.copResult.replace('_', ' ').toLowerCase()}</dd></div>}
@@ -799,6 +801,8 @@ function DemoBar({ me, mandates, credit, notify, after }: { me: Me | null; manda
           await demo.sanctionsHit(me!.kycCaseId!);
           return 'Atfinity rescreening raised a possible sanctions match';
         })}>Sanctions hit</button>
+        {dashboardUrl() && <a className="bbtn" href={dashboardUrl()!} target="_blank" rel="noreferrer"
+          title="Grafana: see what the demo actions just did, as metrics, logs and traces">Observability ↗</a>}
       </div>
     </div>
   );

@@ -329,6 +329,7 @@ services:
       context: ../../web
       args:
         VITE_KEYCLOAK_URL: http://localhost:8180
+        VITE_GRAFANA_URL: http://localhost:3001
     depends_on: [bff, vendor-simulator]
     ports: ["3000:80"]
 

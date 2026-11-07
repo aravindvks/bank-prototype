@@ -42,7 +42,7 @@ jobs:
               -t "$REGISTRY/$name:$TAG" .
             docker push "$REGISTRY/$name:$TAG"
           done
-          docker build -t "$REGISTRY/web:$TAG" --build-arg VITE_KEYCLOAK_URL="${{ vars.IDENTITY_URL }}" web
+          docker build -t "$REGISTRY/web:$TAG" --build-arg VITE_KEYCLOAK_URL="${{ vars.IDENTITY_URL }}" --build-arg VITE_GRAFANA_URL="${{ vars.GRAFANA_URL }}" web
           docker push "$REGISTRY/web:$TAG"
 
       - name: Deploy with Helm
