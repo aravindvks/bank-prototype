@@ -474,7 +474,8 @@ if curl -sf "$TEMPO/ready" >/dev/null 2>&1; then
   echo "25. Tracing: a card tap is one trace from the EHI responder to the Essence hold"
   found=""
   for _ in $(seq 1 15); do
-    t=$(traces '{ resource.service.name = "ehi-responder" } && { resource.service.name = "essence-adapter" }' | head -1)
+    # The EHI request span and the Essence hold span in one trace (not, say, a reconciliation run that calls both).
+    t=$(traces '{ resource.service.name = "ehi-responder" && span.uri = "/ehi/v1/messages" } && { resource.service.name = "essence-adapter" && span.uri =~ ".*holds.*" }' | head -1)
     [ -n "$t" ] && { found="$t ($(trace_services "$t"))"; break; }
     sleep 2
   done
