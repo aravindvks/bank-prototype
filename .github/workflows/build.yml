@@ -109,7 +109,17 @@ jobs:
         run: for i in $(seq 1 60); do curl -sf http://localhost:3000/ >/dev/null && exit 0; sleep 2; done; exit 1
 
       - name: Smoke test
-        run: ./scripts/smoke.sh 2>&1 | tee smoke.log
+        shell: bash
+        run: |
+          # pipefail: without it the step takes tee's exit code and a failed check still passes.
+          set -o pipefail
+          ./scripts/smoke.sh 2>&1 | tee smoke.log
+
+      - name: Report failed checks
+        if: failure()
+        run: |
+          { grep -E 'FAIL' smoke.log || echo "Stopped after: $(grep -E '^[0-9]+\.' smoke.log | tail -1)"; } \
+            | sed 's/\x1b\[[0-9;]*m//g' | cut -c1-900 | sed 's/^/::error title=Smoke test::/' || true
 
       - name: Report stack errors
         if: failure()

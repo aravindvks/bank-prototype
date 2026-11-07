@@ -192,7 +192,7 @@ done
 echo "11. Scheme rejection: a payment to sort code 99-00-00 is rejected and the money returned"
 resp=$(curl -sf -X POST "$BFF/v1/payments" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuid)" \
   -H "$PRIYA_H" \
-  -d '{"debtorAccount":"ACC-5501","creditor":{"name":"Nobody","sortCode":"990000","accountNumber":"00000000"},"amount":{"value":"10.00","currency":"GBP"},"remittanceInfo":"Test"}')
+  -d '{"debtorAccount":"ACC-5501","creditor":{"name":"Nobody","sortCode":"990000","accountNumber":"31926819"},"amount":{"value":"10.00","currency":"GBP"},"remittanceInfo":"Test"}')
 REJ=$(echo "$resp" | field paymentId)
 for _ in $(seq 1 20); do
   p=$(curl -s "$BFF/v1/payments/$REJ" -H "$PRIYA_H"); state=$(pstatus "$REJ")
