@@ -140,6 +140,8 @@ curl -sf -X POST "$SIM/essence/v1/sim/inbound" -H 'Content-Type: application/jso
   -d "{\"creditAccountId\":\"$ASHA_ACC\",\"amount\":\"100.00\",\"debtorName\":\"Arjun Mehta\",\"reference\":\"Welcome\"}" >/dev/null
 bal=$(curl -sf "$SIM/essence/v1/accounts/$ASHA_ACC/balance" | field available)
 [ "$bal" = "100.00" ] && pass "Asha's balance is £$bal" || fail "Expected 100.00, got $bal"
+# Let the bank record the £100 (inbound saga) before step 9 freezes Asha, or it is correctly FLAGGED instead.
+for _ in $(seq 1 30); do curl -sf "$BFF/v1/payments" -H "$ASHA_H" | grep -q '"paymentType":"INBOUND","status":"COMPLETED"' && break; sleep 1; done
 tap=$(curl -sf -X POST "$SIM/thredd/v1/sim/card-tap" -H 'Content-Type: application/json' \
   -d "{\"token\":\"$ASHA_TOKEN\",\"amount\":\"3.50\",\"merchant\":\"Bean There Cafe\"}")
 echo "$tap" | grep -q '"decision":"APPROVE"' && pass "Card tap approved: $tap" || fail "Expected APPROVE, got $tap"
