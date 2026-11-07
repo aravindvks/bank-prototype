@@ -110,8 +110,57 @@ public class SimulatorEssenceGateway implements EssenceGateway {
         body.put("reference", p.reference() == null ? "" : p.reference());
         body.put("endToEndId", p.endToEndId());
         body.put("clientRequestId", p.idempotencyKey());
+        body.put("scheme", p.scheme() == null ? "FPS" : p.scheme());
         Map<String, Object> r = post(standard, "payments.submit", "/payments", body, scenario);
         return new PaymentSubmission(str(r.get("finastraRef")), str(r.get("status")), str(r.get("scheme")));
+    }
+
+    @Override
+    public CopResult confirmPayee(String name, String sortCode, String accountNumber, String scenario) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("name", name);
+        body.put("sortCode", sortCode);
+        body.put("accountNumber", accountNumber);
+        Map<String, Object> r = post(standard, "payees.confirm", "/cop", body, scenario);
+        return new CopResult(str(r.get("result")), str(r.get("matchedName")), str(r.get("reasonCode")));
+    }
+
+    @Override
+    public String chargeFee(String accountId, String amount, String currency, String reference, String idempotencyKey) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("amount", amount);
+        body.put("currency", currency);
+        body.put("reference", reference);
+        body.put("clientRequestId", idempotencyKey);
+        return str(post(standard, "fees.charge", "/accounts/" + accountId + "/fees", body, null).get("postingRef"));
+    }
+
+    @Override
+    public String payCollection(String collectionRef) {
+        return str(post(standard, "directdebits.pay", "/direct-debits/collections/" + collectionRef + "/pay",
+                new LinkedHashMap<>(), null).get("postingRef"));
+    }
+
+    @Override
+    public void returnCollection(String collectionRef, String reasonCode) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("reasonCode", reasonCode);
+        post(standard, "directdebits.return", "/direct-debits/collections/" + collectionRef + "/return", body, null);
+    }
+
+    @Override
+    public String indemnityClaim(String collectionRef, String reasonCode) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("reasonCode", reasonCode);
+        return str(post(standard, "directdebits.indemnity", "/direct-debits/collections/" + collectionRef + "/indemnity",
+                body, null).get("claimRef"));
+    }
+
+    @Override
+    public void cancelMandate(String mandateRef, String reasonCode) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("reasonCode", reasonCode);
+        post(standard, "directdebits.cancel", "/direct-debits/mandates/" + mandateRef + "/cancel", body, null);
     }
 
     @Override

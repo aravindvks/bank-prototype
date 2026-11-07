@@ -62,6 +62,36 @@ public class FinastraSandboxEssenceGateway implements EssenceGateway {
     }
 
     @Override
+    public CopResult confirmPayee(String name, String sortCode, String accountNumber, String scenario) {
+        throw notBuilt("payees.confirm");
+    }
+
+    @Override
+    public String chargeFee(String accountId, String amount, String currency, String reference, String idempotencyKey) {
+        throw notBuilt("fees.charge");
+    }
+
+    @Override
+    public String payCollection(String collectionRef) {
+        throw notBuilt("directdebits.pay");
+    }
+
+    @Override
+    public void returnCollection(String collectionRef, String reasonCode) {
+        throw notBuilt("directdebits.return");
+    }
+
+    @Override
+    public String indemnityClaim(String collectionRef, String reasonCode) {
+        throw notBuilt("directdebits.indemnity");
+    }
+
+    @Override
+    public void cancelMandate(String mandateRef, String reasonCode) {
+        throw notBuilt("directdebits.cancel");
+    }
+
+    @Override
     public java.util.List<Posting> postings(String date) {
         throw notBuilt("postings.list");
     }

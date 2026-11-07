@@ -5,6 +5,7 @@ import bank.pbp.common.events.EventPublisher;
 import bank.pbp.common.events.Topics;
 import bank.pbp.common.ids.Ids;
 import bank.pbp.common.ids.JourneyType;
+import bank.pbp.orchestrator.directdebits.DirectDebitCommands;
 import bank.pbp.orchestrator.payments.InboundPaymentWorkflow.InboundCredit;
 import bank.pbp.orchestrator.temporal.TaskQueues;
 import io.temporal.client.WorkflowClient;
@@ -22,7 +23,9 @@ import org.springframework.stereotype.Component;
 /**
  * Adapter-normalised Finastra events on payment-events (LLD section 9):
  * {@code payment.scheme_status} becomes a paymentStatus signal to the waiting payment saga;
- * {@code credit.received} starts an inbound payment saga. The orchestrator's own payment.* events
+ * {@code credit.received} (Faster Payments or Bacs) starts an inbound payment saga;
+ * {@code directdebit.mandate_received} and {@code directdebit.collection_presented} start the
+ * Direct Debit sagas. The orchestrator's own payment.* events
  * on the same topic are ignored here.
  */
 @Component
@@ -32,10 +35,12 @@ public class PaymentEventListener {
 
     private final WorkflowClient temporal;
     private final EventPublisher events;
+    private final DirectDebitCommands directDebits;
 
-    public PaymentEventListener(WorkflowClient temporal, EventPublisher events) {
+    public PaymentEventListener(WorkflowClient temporal, EventPublisher events, DirectDebitCommands directDebits) {
         this.temporal = temporal;
         this.events = events;
+        this.directDebits = directDebits;
     }
 
     @KafkaListener(topics = Topics.PAYMENT_EVENTS, groupId = "orchestrator-payment-status")
@@ -44,6 +49,8 @@ public class PaymentEventListener {
         switch (e.type()) {
             case "payment.scheme_status" -> schemeStatus(e.data());
             case "credit.received" -> creditReceived(e);
+            case "directdebit.mandate_received" -> directDebits.mandateReceived(e);
+            case "directdebit.collection_presented" -> directDebits.collectionPresented(e);
             default -> {
                 // Our own events; nothing to do.
             }

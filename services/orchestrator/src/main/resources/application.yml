@@ -36,8 +36,18 @@ pbp:
   bank:
     sort-code: ${BANK_SORT_CODE:200001}
   payments:
-    # Single-payment limit in GBP. The daily limit check arrives with the limits table in Phase 1.
+    # Single-payment limit in GBP for same-bank and Faster Payments.
     single-limit: 25000.00
+    # Payments at or above this amount are HELD until a member of staff approves them.
+    review-threshold: ${PAYMENT_REVIEW_THRESHOLD:10000.00}
+    chaps:
+      limit: 1000000.00
+      fee: ${CHAPS_FEE:20.00}
+      # The bank's CHAPS hours, UK time, Monday to Friday (CHAPS settles 06:00-18:00).
+      opens: "${CHAPS_OPENS:06:00}"
+      cut-off: "${CHAPS_CUT_OFF:17:30}"
+      # England and Wales bank holidays, comma-separated ISO dates.
+      holidays: "${CHAPS_HOLIDAYS:2026-12-25,2026-12-28,2027-01-01,2027-03-26,2027-03-29,2027-05-03,2027-05-31,2027-08-30,2027-12-27,2027-12-28}"
   adapters:
     essence-url: ${ESSENCE_ADAPTER_URL:http://localhost:8084}
   services:

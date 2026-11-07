@@ -65,6 +65,10 @@ h1 { font-size: 20px; } h2 { font-size: 17px; } h3 { font-size: 15px; }
 .p-ok { background: var(--ok-soft); color: var(--ok); } .p-bad { background: var(--bad-soft); color: var(--bad); } .p-n { background: var(--surface-2); color: var(--muted); }
 .alert { border-radius: 10px; padding: 12px 14px; margin: 0; }
 .alert.bad { background: var(--bad-soft); color: var(--bad); }
+.alert.ok { background: var(--ok-soft); color: var(--ok); }
+.alert.warn { background: #fdf0dc; color: #7a4408; }
+@media (prefers-color-scheme: dark) { .alert.warn { background: #3a2a12; color: #f2c27a; } }
+.stack.tight { gap: 8px; }
 
 .scroll { overflow-x: auto; }
 .tx { width: 100%; border-collapse: collapse; }

@@ -33,6 +33,9 @@ export type Payment = {
   status: string;
   finastraRef: string | null;
   createdAt: string;
+  copResult?: string | null;
+  fee?: string | null;
+  scheduleId?: string | null;
   history?: { from: string | null; to: string; reason: string | null; actor: string; at: string }[];
 };
 
@@ -46,6 +49,20 @@ export type Onboarding = {
   accountNumber: string | null;
   cardLast4: string | null;
   reason: string | null;
+};
+
+export type Cop = { result: 'MATCH' | 'CLOSE_MATCH' | 'NO_MATCH' | 'UNAVAILABLE'; matchedName?: string | null; reasonCode?: string | null };
+
+export type Schedule = {
+  scheduleId: string; kind: 'ONE_OFF' | 'STANDING_ORDER'; frequency: string | null; creditor: string;
+  amount: string; reference: string | null; scheme: string | null; startDate: string; endDate: string | null;
+  nextDate: string | null; paymentsMade: number; lastStatus: string | null; status: string;
+};
+
+export type Mandate = {
+  mandateId: string; mandateRef: string; originatorName: string; serviceUserNumber: string;
+  payerReference: string | null; status: string; createdAt: string;
+  lastAmount: string | null; lastStatus: string | null; lastCollectedAt: string | null;
 };
 
 export type CardControls = { frozen: boolean; dailyLimit: string; online: boolean; contactless: boolean; atm: boolean };
@@ -94,6 +111,17 @@ export const api = {
   signUp: (body: unknown) =>
     request<{ onboardingId: string; correlationId: string }>('/v1/onboarding', { method: 'POST', body: JSON.stringify(body) }),
   onboarding: (id: string) => request<Onboarding>(`/v1/onboarding/${id}`),
+  confirmPayee: (customerId: string, body: { name: string; sortCode: string; accountNumber: string }) =>
+    request<Cop>('/v1/payees/confirm', { method: 'POST', body: JSON.stringify(body) }, customerId),
+  schedules: (customerId: string) => request<Schedule[]>('/v1/schedules', {}, customerId),
+  createSchedule: (customerId: string, body: unknown) =>
+    request<{ scheduleId: string; correlationId: string }>('/v1/schedules', { method: 'POST', body: JSON.stringify(body) }, customerId),
+  cancelSchedule: (customerId: string, id: string) => request(`/v1/schedules/${id}`, { method: 'DELETE' }, customerId),
+  runScheduleNow: (customerId: string, id: string) => request(`/v1/schedules/${id}/run-now`, { method: 'POST' }, customerId),
+  mandates: (customerId: string) => request<Mandate[]>('/v1/direct-debits', {}, customerId),
+  cancelMandate: (customerId: string, id: string) => request(`/v1/direct-debits/${id}`, { method: 'DELETE' }, customerId),
+  claimRefund: (customerId: string, paymentId: string) =>
+    request('/v1/direct-debits/claims', { method: 'POST', body: JSON.stringify({ paymentId }) }, customerId),
   cardControls: (customerId: string, body: CardControls) =>
     request<{ commandId: string; correlationId: string }>('/v1/cards/controls', { method: 'PUT', body: JSON.stringify(body) }, customerId),
 };
@@ -107,6 +135,17 @@ export const demo = {
     request('/sim/essence/v1/sim/inbound', {
       method: 'POST',
       body: JSON.stringify({ creditAccountId: accountId, amount, debtorName: 'Arjun Mehta', reference: 'Demo transfer' }),
+    }),
+  newDirectDebit: (accountId: string, originatorName: string, serviceUserNumber: string) =>
+    request<{ mandateRef: string }>('/sim/essence/v1/sim/dd/mandates', {
+      method: 'POST', body: JSON.stringify({ accountId, originatorName, serviceUserNumber }),
+    }),
+  collect: (mandateRef: string, amount: string) =>
+    request('/sim/essence/v1/sim/dd/collections', { method: 'POST', body: JSON.stringify({ mandateRef, amount }) }),
+  salary: (accountId: string, amount: string) =>
+    request('/sim/essence/v1/sim/bacs/credits', {
+      method: 'POST',
+      body: JSON.stringify({ originatorName: 'ACME LTD', credits: [{ creditAccountId: accountId, amount, reference: 'SALARY NOV' }] }),
     }),
   sanctionsHit: (caseId: string) => request(`/sim/atfinity/v1/sim/cases/${caseId}/rescreen-hit`, { method: 'POST' }),
 };

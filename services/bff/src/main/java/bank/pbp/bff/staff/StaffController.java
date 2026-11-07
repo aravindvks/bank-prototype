@@ -81,6 +81,18 @@ public class StaffController {
                 .uri("/v1/staff/reviews/{id}", sagaId).body(req).retrieve().body(JsonNode.class));
     }
 
+    /** Approve or reject a HELD high-value payment. */
+    @PostMapping("/payments/{paymentId}/decision")
+    public JsonNode paymentDecision(@PathVariable UUID paymentId, @Valid @RequestBody PaymentDecision body,
+                                    HttpServletRequest request) {
+        Map<String, Object> req = new LinkedHashMap<>();
+        req.put("decision", body.decision());
+        req.put("reviewer", caller.username(request));
+        req.put("note", body.note());
+        return VendorErrors.call("orchestrator", "staff.payment_decision", () -> orchestrator.post()
+                .uri("/v1/staff/payments/{id}/decision", paymentId).body(req).retrieve().body(JsonNode.class));
+    }
+
     /** Links an online banking login to an existing bank customer (e.g. a customer opened in branch). */
     @PostMapping("/logins")
     public Map<String, Object> linkLogin(@Valid @RequestBody LoginLink body, HttpServletRequest request) {
@@ -94,6 +106,9 @@ public class StaffController {
     private JsonNode get(String path) {
         return VendorErrors.call("orchestrator", "staff.get", () -> orchestrator.get().uri(path)
                 .retrieve().body(JsonNode.class));
+    }
+
+    public record PaymentDecision(@NotBlank @Pattern(regexp = "APPROVE|REJECT") String decision, String note) {
     }
 
     public record Decision(@NotBlank @Pattern(regexp = "CLEAR|CONFIRM") String decision, String note) {

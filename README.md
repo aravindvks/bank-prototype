@@ -10,7 +10,7 @@ A UK real-time web bank on Oracle Cloud Infrastructure that integrates three ven
 
 The design is in the HLD and LLD documents ("Banking Platform Prototype – High-Level Design" and "– Low-Level Design"). This repository follows the LLD's names, contracts, topics, tables and error codes.
 
-## Status: Phase 1 (Priya end to end)
+## Status
 
 | Phase | Scope | Status |
 | --- | --- | --- |
@@ -18,6 +18,7 @@ The design is in the HLD and LLD documents ("Banking Platform Prototype – High
 | 1 | Priya end to end: onboarding and KYC saga, card issue, EHI with cache, holds, limits and settlement, sanctions freeze, outbound UK payments with scheme status, inbound payments, customer web app; simulator and sandbox connectors per vendor (`vendor.<name>.mode`) | **Done** |
 | 2 | Staff portal (review queue, clear or confirm, journey search), card controls, live push (Server-Sent Events), reconciliation matching, transactional outbox relayed by Debezium, login with roles (Keycloak standing in for Identity Domains) | **Done** |
 | 3 | OCI Terraform (network with reserved egress IP, OKE, PostgreSQL, Streaming topics, Cache, Vault, Object Storage with retention lock, OCIR, API Gateway, WAF, logging, APM), Helm chart (LLD section 13 sizing, dedicated EHI load balancer, Debezium Connect, Vault-synced secrets) and the release pipeline | **Built and validated; not yet applied** |
+| 2b | More UK payment types: Confirmation of Payee, standing orders and scheduled payments, Direct Debits (Bacs, with returns and the Direct Debit Guarantee), Bacs Direct Credits, CHAPS (hours, high-value approval, fee) | **Done** (simulator) |
 | 4 | Switch each adapter from simulator to vendor sandbox as credentials arrive | |
 
 ## Deploying to OCI (Phase 3)
@@ -87,9 +88,14 @@ Infrastructure only, for running services from the IDE: `make infra`.
 14. Staff clears Asha's case: she is ACTIVE, the held £5 is released and her card works again
 15. Card controls: online switched off → CHANNEL_BLOCKED; £350 approved at a £1,000 limit; frozen card → CARD_BLOCKED
 16. Live push: Priya's incoming payment arrives on her event stream
-17. Reconciliation: payments and card settlements match Essence with zero exceptions; a rogue posting is reported
-18. Outbox relay: the Debezium connector is running after carrying every event above
-19. Login: no token → 401; customer on the staff API → 403; view-only staff cannot run reconciliation; Asha's login linked at sign-up
+17. Confirmation of Payee: MATCH, CLOSE_MATCH (with the real name), NO_MATCH and UNAVAILABLE; a payment to a name that does not match is REJECTED (PAY-COP-001); a close match the customer confirmed goes through
+18. Standing order: monthly, first payment today, next due a month later, then cancelled; a payment scheduled for tomorrow, made early with the demo "pay now"
+19. Bacs Direct Credit: a salary file from ACME LTD is recorded as an inbound Bacs credit
+20. Direct Debits: an originator's mandate (AUDDIS) becomes ACTIVE; a £30 collection is paid; a £90,000 one is returned unpaid (ARUDD 0); the £30 is refunded under the Direct Debit Guarantee; Priya cancels the mandate and the next collection is returned (ARUDD 1)
+21. CHAPS: £12,000 is HELD for staff approval, appears in the Control Room, is approved, then settles with a £20 fee inside CHAPS hours, or waits QUEUED outside them
+22. Reconciliation: payments, fees, Bacs credits, Direct Debits and card settlements match Essence with zero exceptions; a rogue posting is reported
+23. Outbox relay: the Debezium connector is running after carrying every event above
+24. Login: no token → 401; customer on the staff API → 403; view-only staff cannot run reconciliation; Asha's login linked at sign-up
 
 ## Sign-in (local)
 
@@ -116,6 +122,12 @@ linked to the new bank customer when onboarding completes. Running the BFF from 
 | Money arriving | Demo bar "Receive £20", or `POST :8090/essence/v1/sim/inbound` |
 | Card purchase / settlement | Demo bar "Tap card", or `POST :8090/thredd/v1/sim/card-tap` and `/sim/settle` |
 | Sanctions hit | Demo bar "Sanctions hit", or `POST :8090/atfinity/v1/sim/cases/{caseId}/rescreen-hit` |
+| Confirmation of Payee outcomes | Same bank: the real holder's name matches; "R Kumar" for Ravi Kumar is a close match; another name is no match. Sort code 98-xx-xx: unavailable. Account 00000000: no match. Other banks match unless listed in the simulator's CoP directory (040004 12345678 Arjun Mehta, 309634 55667788 Northwind Lettings Ltd) |
+| High-value approval | Pay £10,000 or more; approve or reject it in the staff portal |
+| CHAPS hours | Choose CHAPS: 06:00–17:30 UK time on working days, otherwise QUEUED until the next opening (`CHAPS_OPENS`, `CHAPS_CUT_OFF`, `CHAPS_HOLIDAYS`) |
+| Salary by Bacs | Demo bar "Salary (Bacs)", or `POST :8090/essence/v1/sim/bacs/credits` |
+| Direct Debits | Demo bar "New Direct Debit" then "Collect Direct Debit", or `POST :8090/essence/v1/sim/dd/mandates` and `/sim/dd/collections` (optional `dueDate`; a collection waits for its due date) |
+| Standing order now | "Pay next now" beside a standing order (demo only; signals the schedule's workflow) |
 
 ## Layout
 
@@ -164,4 +176,7 @@ that class is written. Nothing outside the adapter changes.
 
 - **Partitioned tables need the partition column in every unique key.** PostgreSQL rejects `payment_id UUID PRIMARY KEY` on a table partitioned by `created_at`. `payment` uses `PRIMARY KEY (payment_id, created_at)` and `UNIQUE (idempotency_key, created_at)`; the orchestrator always passes the command's `initiatedAt` as `created_at`, so retries stay idempotent. The LLD DDL should be updated to match.
 - The LLD calls the correlation suffix base32, but its example `COR-PAY-7K2M9QXA4B1D` contains `9` and `1`. New IDs use base32; validation accepts `A-Z0-9` so both forms work.
+- **More UK payment types (not in the LLD yet).** Added `payment_schedule` and `dd_mandate` tables and `cop_result`, `fee`, `schedule_id` columns on `payment` (orchestration `V3__uk_payment_types.sql`); payment type `DIRECT_DEBIT`; statuses `QUEUED`, `PRESENTED`, `REFUNDED`; endpoints `/v1/payees`, `/v1/schedules`, `/v1/direct-debits`, `/v1/staff/payments/{id}/decision`; commands `schedule.*` and `directdebit.*` on `payment-commands`; events `directdebit.*` and `schedule.*` on `payment-events`; error code `PAY-DD-002`. The HLD and LLD have been updated to match.
+- **The orchestrator chooses FPS or CHAPS**, not Finastra: the customer picks CHAPS for large same-day payments, and the bank's CHAPS hours, fee and limits are its tariff. The LLD said Finastra routes to the scheme.
+- **Confirmation of Payee is checked twice**: the app checks before the customer pays, and the payment saga checks again, so a client cannot skip it by sending `copResult: MATCH`. UNAVAILABLE goes ahead (bank policy left open in the LLD).
 - `mapping_audit` is listed in the table set but had no DDL; it is defined in `services/mapping-service/src/main/resources/db/migration/V1__mapping_schema.sql`.

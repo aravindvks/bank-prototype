@@ -4,12 +4,16 @@ import bank.pbp.orchestrator.cards.CardActivitiesImpl;
 import bank.pbp.orchestrator.cards.CardControlsWorkflow;
 import bank.pbp.orchestrator.compliance.ComplianceActivitiesImpl;
 import bank.pbp.orchestrator.compliance.ComplianceWorkflow;
+import bank.pbp.orchestrator.directdebits.DirectDebitActivitiesImpl;
+import bank.pbp.orchestrator.directdebits.DirectDebitWorkflows;
 import bank.pbp.orchestrator.onboarding.OnboardingActivitiesImpl;
 import bank.pbp.orchestrator.onboarding.OnboardingWorkflowImpl;
 import bank.pbp.orchestrator.payments.InboundActivitiesImpl;
 import bank.pbp.orchestrator.payments.InboundPaymentWorkflow;
 import bank.pbp.orchestrator.payments.PaymentActivitiesImpl;
 import bank.pbp.orchestrator.payments.PaymentWorkflowImpl;
+import bank.pbp.orchestrator.schedules.ScheduleActivitiesImpl;
+import bank.pbp.orchestrator.schedules.ScheduleWorkflow;
 import io.temporal.client.WorkflowClient;
 import io.temporal.client.WorkflowClientOptions;
 import io.temporal.serviceclient.WorkflowServiceStubs;
@@ -49,9 +53,11 @@ public class TemporalConfig {
                                     OnboardingActivitiesImpl onboardingActivities,
                                     ComplianceActivitiesImpl complianceActivities,
                                     InboundActivitiesImpl inboundActivities,
-                                    CardActivitiesImpl cardActivities) {
+                                    CardActivitiesImpl cardActivities,
+                                    ScheduleActivitiesImpl scheduleActivities,
+                                    DirectDebitActivitiesImpl directDebitActivities) {
         return new TemporalWorkers(factory, paymentActivities, onboardingActivities, complianceActivities,
-                inboundActivities, cardActivities);
+                inboundActivities, cardActivities, scheduleActivities, directDebitActivities);
     }
 
     /** Starts polling after the context is ready and stops cleanly on shutdown. */
@@ -65,24 +71,32 @@ public class TemporalConfig {
         private final ComplianceActivitiesImpl complianceActivities;
         private final InboundActivitiesImpl inboundActivities;
         private final CardActivitiesImpl cardActivities;
+        private final ScheduleActivitiesImpl scheduleActivities;
+        private final DirectDebitActivitiesImpl directDebitActivities;
         private volatile boolean running;
 
         TemporalWorkers(WorkerFactory factory, PaymentActivitiesImpl paymentActivities,
                         OnboardingActivitiesImpl onboardingActivities, ComplianceActivitiesImpl complianceActivities,
-                        InboundActivitiesImpl inboundActivities, CardActivitiesImpl cardActivities) {
+                        InboundActivitiesImpl inboundActivities, CardActivitiesImpl cardActivities,
+                        ScheduleActivitiesImpl scheduleActivities, DirectDebitActivitiesImpl directDebitActivities) {
             this.factory = factory;
             this.paymentActivities = paymentActivities;
             this.onboardingActivities = onboardingActivities;
             this.complianceActivities = complianceActivities;
             this.inboundActivities = inboundActivities;
             this.cardActivities = cardActivities;
+            this.scheduleActivities = scheduleActivities;
+            this.directDebitActivities = directDebitActivities;
         }
 
         @Override
         public void start() {
             Worker payments = factory.newWorker(TaskQueues.PAYMENTS);
-            payments.registerWorkflowImplementationTypes(PaymentWorkflowImpl.class, InboundPaymentWorkflow.Impl.class);
-            payments.registerActivitiesImplementations(paymentActivities, inboundActivities);
+            payments.registerWorkflowImplementationTypes(PaymentWorkflowImpl.class, InboundPaymentWorkflow.Impl.class,
+                    ScheduleWorkflow.Impl.class, DirectDebitWorkflows.MandateImpl.class,
+                    DirectDebitWorkflows.CollectionImpl.class, DirectDebitWorkflows.ClaimImpl.class);
+            payments.registerActivitiesImplementations(paymentActivities, inboundActivities, scheduleActivities,
+                    directDebitActivities);
             Worker onboarding = factory.newWorker(TaskQueues.ONBOARDING);
             onboarding.registerWorkflowImplementationTypes(OnboardingWorkflowImpl.class);
             onboarding.registerActivitiesImplementations(onboardingActivities);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, auth, demo, gbp, toDate, ApiError, type CardControls, type Me, type Onboarding, type Payment } from './api';
+import { api, auth, demo, gbp, toDate, ApiError, type CardControls, type Cop, type Mandate, type Me, type Onboarding, type Payment, type Schedule } from './api';
 import Staff from './Staff';
 
 const STORAGE_KEY = 'pbp.customerId';
@@ -202,14 +202,19 @@ function Bank({ customerId, notify, onSignOut }: { customerId: string; notify: (
   const [tab, setTab] = useState<Tab>('home');
   const [me, setMe] = useState<Me | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [mandates, setMandates] = useState<Mandate[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [m, p] = await Promise.all([api.me(customerId), api.payments(customerId)]);
+      const [m, p, sc, dd] = await Promise.all([api.me(customerId), api.payments(customerId),
+        api.schedules(customerId).catch(() => [] as Schedule[]), api.mandates(customerId).catch(() => [] as Mandate[])]);
       setMe(m);
       setPayments(p);
+      setSchedules(sc);
+      setMandates(dd);
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Cannot reach the bank');
@@ -251,7 +256,7 @@ function Bank({ customerId, notify, onSignOut }: { customerId: string; notify: (
   const frozen = me && me.status !== 'ACTIVE';
   return (
     <>
-      <DemoBar me={me} notify={notify} after={refresh} />
+      <DemoBar me={me} mandates={mandates} notify={notify} after={refresh} />
       <main className="shell">
         <header className="topbar">
           <div className="brand">
@@ -276,8 +281,8 @@ function Bank({ customerId, notify, onSignOut }: { customerId: string; notify: (
         {tab === 'home' && me && <Home me={me} payments={payments} open={(id) => { setTab('payments'); setSelected(id); }} />}
         {tab === 'payments' && me && (
           selected
-            ? <PaymentDetail id={selected} back={() => setSelected(null)} />
-            : <Payments me={me} customerId={customerId} payments={payments} open={setSelected} notify={notify} after={refresh} />
+            ? <PaymentDetail id={selected} back={() => setSelected(null)} customerId={customerId} notify={notify} />
+            : <Payments me={me} customerId={customerId} payments={payments} schedules={schedules} mandates={mandates} open={setSelected} notify={notify} after={refresh} />
         )}
         {tab === 'card' && me && <CardView me={me} customerId={customerId} notify={notify} after={refresh} />}
       </main>
@@ -310,27 +315,84 @@ function Home({ me, payments, open }: { me: Me; payments: Payment[]; open: (id: 
   );
 }
 
-function Payments({ me, customerId, payments, open, notify, after }: {
-  me: Me; customerId: string; payments: Payment[]; open: (id: string) => void; notify: (m: string) => void; after: () => void;
+const BANK_SORT = '200001';
+const todayUk = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
+const plusDays = (iso: string, n: number) => {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+const fmtDay = (iso?: string | null) => (iso ? new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
+
+type When = 'NOW' | 'LATER' | 'REPEAT';
+
+function Payments({ me, customerId, payments, schedules, mandates, open, notify, after }: {
+  me: Me; customerId: string; payments: Payment[]; schedules: Schedule[]; mandates: Mandate[];
+  open: (id: string) => void; notify: (m: string) => void; after: () => void;
 }) {
-  const [form, setForm] = useState({ name: 'Arjun Mehta', sortCode: '040004', accountNumber: '12345678', amount: '15.00', reference: 'Dinner' });
+  const [form, setForm] = useState({
+    name: 'Arjun Mehta', sortCode: '040004', accountNumber: '12345678', amount: '15.00', reference: 'Dinner',
+    scheme: 'FPS' as 'FPS' | 'CHAPS', when: 'NOW' as When, date: plusDays(todayUk(), 1), frequency: 'MONTHLY', endDate: '',
+  });
+  const [cop, setCop] = useState<{ key: string; result: Cop; accepted: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const sort = form.sortCode.replace(/\D/g, '');
+  const sameBank = sort === BANK_SORT;
+  const key = `${form.name.trim()}|${sort}|${form.accountNumber}`;
+  const checked = cop && cop.key === key ? cop : null;
+  const canSend = !!checked && (checked.result.result === 'MATCH' || checked.result.result === 'UNAVAILABLE'
+    || (checked.result.result === 'CLOSE_MATCH' && checked.accepted));
+  const set = (patch: Partial<typeof form>) => setForm({ ...form, ...patch });
+
+  const check = async () => {
+    setBusy(true);
+    try {
+      const r = await api.confirmPayee(customerId, { name: form.name.trim(), sortCode: sort, accountNumber: form.accountNumber });
+      setCop({ key, result: r, accepted: false });
+    } catch (err) {
+      setCop({ key, result: { result: 'UNAVAILABLE' }, accepted: false });
+      notify(err instanceof ApiError ? `Name check unavailable: ${err.message}` : 'Name check unavailable');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const useSuggested = () => {
+    const name = checked?.result.matchedName;
+    if (!name) return;
+    setForm({ ...form, name });
+    setCop({ key: `${name}|${sort}|${form.accountNumber}`, result: { result: 'MATCH' }, accepted: false });
+  };
 
   const send = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!me.account) return;
+    if (!checked) { await check(); return; }
+    if (!canSend) return;
     setBusy(true);
+    const creditor = { name: form.name.trim(), sortCode: sort, accountNumber: form.accountNumber };
+    const amount = { value: Number(form.amount).toFixed(2), currency: 'GBP' };
+    const copResult = checked.result.result === 'CLOSE_MATCH' ? 'CLOSE_MATCH' : checked.result.result;
+    const scheme = sameBank ? undefined : form.scheme;
     try {
-      const r = await api.pay(customerId, {
-        debtorAccount: me.account.accountId,
-        creditor: { name: form.name, sortCode: form.sortCode.replace(/\D/g, ''), accountNumber: form.accountNumber },
-        amount: { value: Number(form.amount).toFixed(2), currency: 'GBP' },
-        remittanceInfo: form.reference,
-        copResult: 'MATCH',
-      });
-      notify(`Payment accepted · ${r.correlationId}`);
-      after();
-      open(r.paymentId);
+      if (form.when === 'NOW') {
+        const r = await api.pay(customerId, {
+          debtorAccount: me.account.accountId, creditor, amount, remittanceInfo: form.reference, copResult, scheme,
+        });
+        notify(`Payment accepted · ${r.correlationId}`);
+        after();
+        open(r.paymentId);
+      } else {
+        await api.createSchedule(customerId, {
+          kind: form.when === 'LATER' ? 'ONE_OFF' : 'STANDING_ORDER',
+          frequency: form.when === 'REPEAT' ? form.frequency : undefined,
+          startDate: form.date, endDate: form.when === 'REPEAT' && form.endDate ? form.endDate : undefined,
+          debtorAccount: me.account.accountId, creditor, amount, reference: form.reference, scheme, copResult,
+        });
+        notify(form.when === 'LATER' ? `Payment scheduled for ${fmtDay(form.date)}` : 'Standing order set up');
+        setTimeout(after, 1200);
+      }
     } catch (err) {
       notify(err instanceof ApiError ? `${err.code ?? 'Error'}: ${err.message}` : 'Payment failed');
     } finally {
@@ -338,25 +400,170 @@ function Payments({ me, customerId, payments, open, notify, after }: {
     }
   };
 
+  const r = checked?.result;
   return (
     <>
       <form className="panel stack" onSubmit={send}>
         <h2>Send money</h2>
-        <p className="muted">Sort code 20-00-01 is this bank (instant transfer). Any other goes to Finastra, which routes it by Faster Payments; 99-xx-xx is rejected by the scheme.</p>
+        <p className="muted">Sort code 20-00-01 is this bank (instant transfer). Others go by Faster Payments, or CHAPS for large same-day payments. We check the name with the payee's bank first (Confirmation of Payee). 99-xx-xx is rejected by the scheme; 98-xx-xx is a bank outside the name check.</p>
         <div className="form">
-          <label className="field">Payee name<input id="payee" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
-          <label className="field">Sort code<input id="sort" required pattern="\d{2}-?\d{2}-?\d{2}" value={form.sortCode} onChange={(e) => setForm({ ...form, sortCode: e.target.value })} /></label>
-          <label className="field">Account number<input id="acc" required pattern="\d{8}" value={form.accountNumber} onChange={(e) => setForm({ ...form, accountNumber: e.target.value })} /></label>
-          <label className="field">Amount (£)<input id="amount" required inputMode="decimal" pattern="\d+(\.\d{1,2})?" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></label>
-          <label className="field">Reference<input id="ref" maxLength={18} value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} /></label>
+          <label className="field">Payee name<input id="payee" required value={form.name} onChange={(e) => set({ name: e.target.value })} /></label>
+          <label className="field">Sort code<input id="sort" required pattern="\d{2}-?\d{2}-?\d{2}" value={form.sortCode} onChange={(e) => set({ sortCode: e.target.value })} /></label>
+          <label className="field">Account number<input id="acc" required pattern="\d{8}" value={form.accountNumber} onChange={(e) => set({ accountNumber: e.target.value })} /></label>
+          <label className="field">Amount (£)<input id="amount" required inputMode="decimal" pattern="\d+(\.\d{1,2})?" value={form.amount} onChange={(e) => set({ amount: e.target.value })} /></label>
+          <label className="field">Reference<input id="ref" maxLength={18} value={form.reference} onChange={(e) => set({ reference: e.target.value })} /></label>
         </div>
-        <div><button className="btn primary" disabled={busy || me.status !== 'ACTIVE'}>{busy ? 'Sending…' : 'Send'}</button></div>
+        <div className="row wrap">
+          <span className="seg" role="group" aria-label="When">
+            {(['NOW', 'LATER', 'REPEAT'] as When[]).map((w) => (
+              <button type="button" key={w} aria-pressed={form.when === w} onClick={() => set({ when: w })}>
+                {w === 'NOW' ? 'Pay now' : w === 'LATER' ? 'On a date' : 'Standing order'}
+              </button>
+            ))}
+          </span>
+          {!sameBank && (
+            <span className="seg" role="group" aria-label="Scheme">
+              <button type="button" aria-pressed={form.scheme === 'FPS'} onClick={() => set({ scheme: 'FPS' })}>Faster Payment · free</button>
+              <button type="button" aria-pressed={form.scheme === 'CHAPS'} onClick={() => set({ scheme: 'CHAPS' })}>CHAPS · £20, same day</button>
+            </span>
+          )}
+        </div>
+        {form.when !== 'NOW' && (
+          <div className="form">
+            <label className="field">{form.when === 'LATER' ? 'Pay on' : 'First payment'}<input id="date" type="date" required min={todayUk()} value={form.date} onChange={(e) => set({ date: e.target.value })} /></label>
+            {form.when === 'REPEAT' && (
+              <>
+                <label className="field">How often
+                  <select id="freq" value={form.frequency} onChange={(e) => set({ frequency: e.target.value })}>
+                    <option value="MONTHLY">Monthly</option>
+                    <option value="WEEKLY">Weekly</option>
+                  </select>
+                </label>
+                <label className="field">Last payment (optional)<input id="end" type="date" min={form.date} value={form.endDate} onChange={(e) => set({ endDate: e.target.value })} /></label>
+              </>
+            )}
+          </div>
+        )}
+        {!sameBank && form.scheme === 'CHAPS' && <p className="muted small">CHAPS runs 06:00–17:30 UK time on working days; outside those hours the payment waits for the next opening. Payments of £10,000 or more are checked by our team first.</p>}
+        {r && (
+          <div className={`alert ${r.result === 'MATCH' ? 'ok' : r.result === 'NO_MATCH' ? 'bad' : 'warn'}`} role="status">
+            {r.result === 'MATCH' && <><strong>Name matches.</strong> The account is held by {form.name.trim()}.</>}
+            {r.result === 'CLOSE_MATCH' && (
+              <div className="stack tight">
+                <span><strong>Close match.</strong> The account is held by <strong>{r.matchedName}</strong>, not {form.name.trim()}.</span>
+                <div className="row">
+                  <button type="button" className="btn small primary" onClick={useSuggested}>Pay {r.matchedName}</button>
+                  {!checked?.accepted && <button type="button" className="btn small" onClick={() => setCop({ ...checked!, accepted: true })}>Pay {form.name.trim()} anyway</button>}
+                  {checked?.accepted && <span className="muted small">You chose to keep the name you typed.</span>}
+                </div>
+              </div>
+            )}
+            {r.result === 'NO_MATCH' && <><strong>Name does not match</strong> the account. Check the details with the person you are paying; we will not send this payment.</>}
+            {r.result === 'UNAVAILABLE' && <><strong>We could not check the name</strong> with that bank. Only continue if you are sure the details are right.</>}
+          </div>
+        )}
+        <div className="row">
+          <button className="btn primary" disabled={busy || me.status !== 'ACTIVE' || (!!checked && !canSend)}>
+            {busy ? 'Working…' : !checked ? 'Check name' : form.when === 'NOW' ? 'Send' : form.when === 'LATER' ? 'Schedule payment' : 'Set up standing order'}
+          </button>
+          {checked && <button type="button" className="btn small" onClick={() => setCop(null)}>Check again</button>}
+        </div>
       </form>
+      <Schedules customerId={customerId} schedules={schedules} notify={notify} after={after} />
+      <DirectDebits customerId={customerId} mandates={mandates} notify={notify} after={after} />
       <section className="panel stack">
         <h2>All payments</h2>
         <PaymentList payments={payments} open={open} />
       </section>
     </>
+  );
+}
+
+function Schedules({ customerId, schedules, notify, after }: {
+  customerId: string; schedules: Schedule[]; notify: (m: string) => void; after: () => void;
+}) {
+  const act = async (fn: () => Promise<unknown>, text: string) => {
+    try {
+      await fn();
+      notify(text);
+      setTimeout(after, 1500);
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : 'Request failed');
+    }
+  };
+  return (
+    <section className="panel stack">
+      <h2>Standing orders and scheduled payments</h2>
+      {!schedules.length ? <p className="muted">None yet. Choose “On a date” or “Standing order” above.</p> : (
+        <div className="scroll">
+          <table className="tx">
+            <tbody>
+              {schedules.map((s) => {
+                const c = parseCreditor(s.creditor);
+                const active = s.status === 'ACTIVE';
+                return (
+                  <tr key={s.scheduleId}>
+                    <td>
+                      <div>To {c.name} · <span className="num">{gbp(s.amount)}</span></div>
+                      <div className="meta">
+                        {s.kind === 'ONE_OFF' ? `Once on ${fmtDay(s.startDate)}` : `${s.frequency === 'WEEKLY' ? 'Weekly' : 'Monthly'} from ${fmtDay(s.startDate)}${s.endDate ? ` to ${fmtDay(s.endDate)}` : ''}`}
+                        {active && s.nextDate ? ` · next ${fmtDay(s.nextDate)}` : ''}
+                        {s.paymentsMade ? ` · ${s.paymentsMade} paid${s.lastStatus && s.lastStatus !== 'COMPLETED' ? ` (last ${s.lastStatus.toLowerCase()})` : ''}` : ''}
+                        {s.scheme === 'CHAPS' ? ' · CHAPS' : ''}
+                      </div>
+                    </td>
+                    <td><Pill status={s.status} /></td>
+                    <td className="actions">
+                      {active && <button className="btn small linklike" title="Demo: make the next payment now" onClick={() => act(() => api.runScheduleNow(customerId, s.scheduleId), 'Next payment sent now (demo)')}>Pay next now</button>}
+                      {active && <button className="btn small danger" onClick={() => act(() => api.cancelSchedule(customerId, s.scheduleId), 'Cancelled')}>Cancel</button>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function DirectDebits({ customerId, mandates, notify, after }: {
+  customerId: string; mandates: Mandate[]; notify: (m: string) => void; after: () => void;
+}) {
+  const cancel = async (m: Mandate) => {
+    try {
+      await api.cancelMandate(customerId, m.mandateId);
+      notify(`Cancelling your Direct Debit to ${m.originatorName}`);
+      setTimeout(after, 1500);
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : 'Request failed');
+    }
+  };
+  return (
+    <section className="panel stack">
+      <h2>Direct Debits</h2>
+      {!mandates.length ? <p className="muted">None yet. Companies set up Direct Debits with your account details; use “New Direct Debit” in the demo bar.</p> : (
+        <div className="scroll">
+          <table className="tx">
+            <tbody>
+              {mandates.map((m) => (
+                <tr key={m.mandateId}>
+                  <td>
+                    <div>{m.originatorName}</div>
+                    <div className="meta">Service user {m.serviceUserNumber} · reference {m.payerReference ?? '—'} · since {fmtDay(m.createdAt.slice(0, 10))}
+                      {m.lastAmount ? ` · last ${gbp(m.lastAmount)} ${m.lastStatus?.toLowerCase()}` : ''}</div>
+                  </td>
+                  <td><Pill status={m.status} /></td>
+                  <td className="actions">{m.status === 'ACTIVE' && <button className="btn small danger" onClick={() => cancel(m)}>Cancel</button>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="muted small">Protected by the Direct Debit Guarantee: if a Direct Debit is taken in error, open it under All payments and claim a full, immediate refund.</p>
+    </section>
   );
 }
 
@@ -373,7 +580,7 @@ function PaymentList({ payments, open }: { payments: Payment[]; open: (id: strin
               <tr key={p.paymentId} className="click" tabIndex={0} onClick={() => open(p.paymentId)} onKeyDown={(e) => e.key === 'Enter' && open(p.paymentId)}>
                 <td>
                   <div>{inbound ? `From ${c.debtorName ?? 'another bank'}` : `To ${c.name ?? '—'}`}</div>
-                  <div className="meta">{label(p.paymentType)} · {toDate(p.createdAt).toLocaleString('en-GB')}</div>
+                  <div className="meta">{label(p.paymentType, c.scheme)}{p.scheduleId ? ' · standing order' : ''} · {toDate(p.createdAt).toLocaleString('en-GB')}</div>
                 </td>
                 <td><Pill status={p.status} /></td>
                 <td className={`amt num ${inbound ? 'in' : ''}`}>{inbound ? '+' : '−'}{gbp(p.amount)}</td>
@@ -386,7 +593,7 @@ function PaymentList({ payments, open }: { payments: Payment[]; open: (id: strin
   );
 }
 
-function PaymentDetail({ id, back }: { id: string; back: () => void }) {
+function PaymentDetail({ id, back, customerId, notify }: { id: string; back: () => void; customerId: string; notify: (m: string) => void }) {
   const [p, setP] = useState<Payment | null>(null);
   useEffect(() => {
     let stop = false;
@@ -394,7 +601,7 @@ function PaymentDetail({ id, back }: { id: string; back: () => void }) {
       try {
         const r = await api.payment(id);
         if (!stop) setP(r);
-        if (['COMPLETED', 'REJECTED', 'FAILED', 'FLAGGED'].includes(r.status)) return;
+        if (['COMPLETED', 'REJECTED', 'FAILED', 'FLAGGED', 'RETURNED', 'REFUNDED'].includes(r.status)) return;
       } catch {
         /* not recorded yet */
       }
@@ -412,7 +619,7 @@ function PaymentDetail({ id, back }: { id: string; back: () => void }) {
         <>
           <div className="row between">
             <div>
-              <p className="eyebrow">{label(p.paymentType)}</p>
+              <p className="eyebrow">{label(p.paymentType, c.scheme)}</p>
               <h2>{p.paymentType === 'INBOUND' ? `From ${c.debtorName}` : `To ${c.name}`}</h2>
             </div>
             <div className="row"><span className="balance small num">{gbp(p.amount)}</span><Pill status={p.status} /></div>
@@ -420,8 +627,24 @@ function PaymentDetail({ id, back }: { id: string; back: () => void }) {
           <dl className="kv">
             <div><dt>Correlation ID</dt><dd className="mono small">{p.correlationId}</dd></div>
             <div><dt>Payment ID</dt><dd className="mono small">{p.paymentId}</dd></div>
-            {p.finastraRef && <div><dt>Finastra reference</dt><dd className="mono small">{p.finastraRef}</dd></div>}
+            {p.finastraRef && <div><dt>{p.paymentType === 'DIRECT_DEBIT' ? 'Bacs reference' : 'Finastra reference'}</dt><dd className="mono small">{p.finastraRef}</dd></div>}
+            {p.copResult && <div><dt>Name check</dt><dd>{p.copResult.replace('_', ' ').toLowerCase()}</dd></div>}
+            {p.fee && Number(p.fee) > 0 && <div><dt>Fee</dt><dd className="num">{gbp(p.fee)}</dd></div>}
+            {p.paymentType === 'DIRECT_DEBIT' && <div><dt>Service user</dt><dd>{c.serviceUserNumber} · {c.payerReference}</dd></div>}
           </dl>
+          {p.paymentType === 'DIRECT_DEBIT' && p.status === 'COMPLETED' && (
+            <div className="row">
+              <button className="btn small" onClick={async () => {
+                try {
+                  await api.claimRefund(customerId, p.paymentId);
+                  notify('Refund requested under the Direct Debit Guarantee');
+                  setTimeout(() => api.payment(id).then(setP).catch(() => undefined), 2500);
+                } catch (err) {
+                  notify(err instanceof ApiError ? err.message : 'Claim failed');
+                }
+              }}>Claim a refund (Direct Debit Guarantee)</button>
+            </div>
+          )}
           <h3>Timeline</h3>
           <ol className="timeline">
             {p.history?.map((h, i) => (
@@ -496,7 +719,7 @@ function CardView({ me, customerId, notify, after }: { me: Me; customerId: strin
 // Demo toolbar (dev and demo environments only, LLD section 16)
 // ---------------------------------------------------------------------------------------------
 
-function DemoBar({ me, notify, after }: { me: Me | null; notify: (m: string) => void; after: () => void }) {
+function DemoBar({ me, mandates, notify, after }: { me: Me | null; mandates: Mandate[]; notify: (m: string) => void; after: () => void }) {
   const [merchant, setMerchant] = useState('3.50|Bean There Cafe|contactless');
   const run = async (fn: () => Promise<string>) => {
     try {
@@ -525,6 +748,19 @@ function DemoBar({ me, notify, after }: { me: Me | null; notify: (m: string) => 
           await demo.receive(me!.account!.accountId, '20.00');
           return 'Arjun sent you £20 by Faster Payment';
         })}>Receive £20</button>
+        <button className="bbtn" disabled={!me?.account} onClick={() => run(async () => {
+          await demo.salary(me!.account!.accountId, '2500.00');
+          return 'ACME LTD paid your salary of £2,500 by Bacs';
+        })}>Salary (Bacs)</button>
+        <button className="bbtn" disabled={!me?.account} onClick={() => run(async () => {
+          await demo.newDirectDebit(me!.account!.accountId, 'Brightside Energy', '275431');
+          return 'Brightside Energy set up a Direct Debit on your account';
+        })}>New Direct Debit</button>
+        <button className="bbtn" disabled={!mandates.some((m) => m.status === 'ACTIVE') && !mandates.length} onClick={() => run(async () => {
+          const m = mandates.find((x) => x.status === 'ACTIVE') ?? mandates[0];
+          await demo.collect(m.mandateRef, '45.00');
+          return `${m.originatorName} collected £45 by Direct Debit`;
+        })}>Collect Direct Debit</button>
         <button className="bbtn" disabled={!me?.kycCaseId} onClick={() => run(async () => {
           await demo.sanctionsHit(me!.kycCaseId!);
           return 'Atfinity rescreening raised a possible sanctions match';
@@ -538,7 +774,7 @@ function DemoBar({ me, notify, after }: { me: Me | null; notify: (m: string) => 
 
 function Pill({ status }: { status: string }) {
   const tone = ['COMPLETED', 'ACTIVE', 'VALID'].includes(status) ? 'ok'
-    : ['REJECTED', 'FAILED', 'FROZEN', 'BLOCKED', 'FLAGGED'].includes(status) ? 'bad' : 'n';
+    : ['REJECTED', 'FAILED', 'FROZEN', 'BLOCKED', 'FLAGGED', 'RETURNED'].includes(status) ? 'bad' : 'n';
   return <span className={`pill p-${tone}`}>{status.replace('_', ' ').toLowerCase()}</span>;
 }
 
@@ -550,8 +786,9 @@ function parseCreditor(json?: string | null): Record<string, string | undefined>
   }
 }
 
-const label = (type: string) =>
-  ({ INTERNAL: 'Same-bank transfer', FPS: 'Faster Payment', CHAPS: 'CHAPS', BACS: 'Bacs', INBOUND: 'Money in' } as Record<string, string>)[type] ?? type;
+const label = (type: string, scheme?: string) =>
+  type === 'INBOUND' && scheme === 'BACS' ? 'Bacs credit'
+    : ({ INTERNAL: 'Same-bank transfer', FPS: 'Faster Payment', CHAPS: 'CHAPS', BACS: 'Bacs', INBOUND: 'Money in', DIRECT_DEBIT: 'Direct Debit' } as Record<string, string>)[type] ?? type;
 
 /** Short customer-facing text for a pushed event, or null to refresh silently. */
 function describe(type: string, d: Record<string, unknown>): string | null {
@@ -559,9 +796,19 @@ function describe(type: string, d: Record<string, unknown>): string | null {
   switch (type) {
     case 'card.authorised': return `Card payment ${gbp(amount)} at ${d.merchant}`;
     case 'card.declined': return `Card declined at ${d.merchant}: ${d.reason}`;
-    case 'payment.completed': return `Payment of ${gbp(amount)} completed`;
+    case 'payment.completed': return d.type === 'DIRECT_DEBIT' ? `Direct Debit of ${gbp(amount)} paid to ${d.originatorName}` : `Payment of ${gbp(amount)} completed`;
+    case 'payment.held': return `Payment of ${gbp(amount)} is waiting for approval by our team`;
+    case 'payment.queued': return `CHAPS payment of ${gbp(amount)} will go when CHAPS opens`;
+    case 'payment.presented': return `${d.originatorName} will collect ${gbp(amount)} by Direct Debit on ${fmtDay(String(d.dueDate))}`;
+    case 'payment.returned': return `Direct Debit of ${gbp(amount)} to ${d.originatorName} was not paid: ${d.reason}`;
+    case 'payment.refunded': return `Refunded ${gbp(amount)} under the Direct Debit Guarantee`;
+    case 'directdebit.mandate_created': return `New Direct Debit set up for ${d.originatorName}`;
+    case 'directdebit.mandate_cancelled': return `Direct Debit to ${d.originatorName} cancelled`;
+    case 'directdebit.claim_refused': return `Refund not possible: ${d.reason}`;
+    case 'schedule.created': return d.kind === 'ONE_OFF' ? `Payment to ${d.creditorName} scheduled` : `Standing order to ${d.creditorName} set up`;
+    case 'schedule.cancelled': return `${d.kind === 'ONE_OFF' ? 'Scheduled payment' : 'Standing order'} to ${d.creditorName} cancelled`;
     case 'payment.rejected': return `Payment of ${gbp(amount)} rejected: ${d.reason}`;
-    case 'payment.received': return d.status === 'FLAGGED' ? `${gbp(amount)} received and held for review` : `You received ${gbp(amount)} from ${d.debtorName}`;
+    case 'payment.received': return d.status === 'FLAGGED' ? `${gbp(amount)} received and held for review` : `You received ${gbp(amount)} from ${d.debtorName}${d.scheme === 'BACS' ? ' by Bacs' : ''}`;
     case 'payment.released': return `Held payment of ${gbp(amount)} released`;
     case 'customer.status_changed': return d.to === 'FROZEN' ? 'Your account is under review' : d.to === 'ACTIVE' ? 'Your account is fully available' : null;
     case 'card.controls_changed': return 'Card settings updated';

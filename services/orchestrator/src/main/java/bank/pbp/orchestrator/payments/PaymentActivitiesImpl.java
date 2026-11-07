@@ -9,7 +9,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.temporal.failure.ApplicationFailure;
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -40,11 +44,21 @@ public class PaymentActivitiesImpl implements PaymentActivities {
     private final ObjectMapper mapper;
     private final RestClient essence;
     private final BigDecimal singleLimit;
+    private final BigDecimal chapsLimit;
+    private final BigDecimal reviewThreshold;
+    private final BigDecimal chapsFee;
+    private final ChapsWindow chaps;
 
     public PaymentActivitiesImpl(JdbcClient jdbc, TransactionTemplate tx, EventPublisher events, ObjectMapper mapper,
                                  RestClient.Builder builder,
                                  @Value("${pbp.adapters.essence-url}") String essenceUrl,
-                                 @Value("${pbp.payments.single-limit}") BigDecimal singleLimit) {
+                                 @Value("${pbp.payments.single-limit}") BigDecimal singleLimit,
+                                 @Value("${pbp.payments.chaps.limit}") BigDecimal chapsLimit,
+                                 @Value("${pbp.payments.review-threshold}") BigDecimal reviewThreshold,
+                                 @Value("${pbp.payments.chaps.fee}") BigDecimal chapsFee,
+                                 @Value("${pbp.payments.chaps.opens}") String chapsOpens,
+                                 @Value("${pbp.payments.chaps.cut-off}") String chapsCutOff,
+                                 @Value("${pbp.payments.chaps.holidays:}") List<String> holidays) {
         this.jdbc = jdbc;
         this.tx = tx;
         this.events = events;
@@ -54,6 +68,12 @@ public class PaymentActivitiesImpl implements PaymentActivities {
         f.setReadTimeout(12_000);
         this.essence = builder.clone().baseUrl(essenceUrl).requestFactory(f).build();
         this.singleLimit = singleLimit;
+        this.chapsLimit = chapsLimit;
+        this.reviewThreshold = reviewThreshold;
+        this.chapsFee = chapsFee;
+        this.chaps = new ChapsWindow(LocalTime.parse(chapsOpens), LocalTime.parse(chapsCutOff),
+                holidays.stream().filter(h -> !h.isBlank()).map(h -> LocalDate.parse(h.trim()))
+                        .collect(java.util.stream.Collectors.toSet()));
     }
 
     @Override
@@ -63,9 +83,10 @@ public class PaymentActivitiesImpl implements PaymentActivities {
                     "accountNumber", c.creditorAccountNumber());
             int inserted = jdbc.sql("""
                             INSERT INTO payment (payment_id, correlation_id, customer_id, debit_account, creditor,
-                                                 amount, currency, payment_type, status, idempotency_key, created_at)
+                                                 amount, currency, payment_type, status, idempotency_key, created_at,
+                                                 schedule_id)
                             VALUES (:id, :correlationId, :customerId, :debit, CAST(:creditor AS jsonb), :amount,
-                                    :currency, :type, 'INITIATED', :idem, :createdAt)
+                                    :currency, :type, 'INITIATED', :idem, :createdAt, CAST(:schedule AS uuid))
                             ON CONFLICT DO NOTHING""")
                     .param("id", UUID.fromString(c.paymentId()))
                     .param("correlationId", c.correlationId())
@@ -77,6 +98,7 @@ public class PaymentActivitiesImpl implements PaymentActivities {
                     .param("type", c.paymentType())
                     .param("idem", c.idempotencyKey())
                     .param("createdAt", OffsetDateTime.parse(c.initiatedAt()))
+                    .param("schedule", c.scheduleId())
                     .update();
             if (inserted == 1) {
                 jdbc.sql("""
@@ -106,13 +128,74 @@ public class PaymentActivitiesImpl implements PaymentActivities {
         return withCorrelation(c, () -> {
             BigDecimal amount = new BigDecimal(c.amount());
             if (amount.signum() <= 0) {
-                return new RiskResult(false, "GEN-VALID-001", "Amount must be greater than zero");
+                return RiskResult.fail("GEN-VALID-001", "Amount must be greater than zero");
             }
-            if (amount.compareTo(singleLimit) > 0) {
-                return new RiskResult(false, "PAY-LIMIT-001",
-                        "Requested " + c.amount() + " GBP exceeds the single-payment limit " + singleLimit.toPlainString() + " GBP");
+            boolean isChaps = "CHAPS".equals(c.paymentType());
+            BigDecimal limit = isChaps ? chapsLimit : singleLimit;
+            if (amount.compareTo(limit) > 0) {
+                return RiskResult.fail("PAY-LIMIT-001", "Requested " + c.amount() + " GBP exceeds the "
+                        + (isChaps ? "CHAPS" : "single-payment") + " limit " + limit.toPlainString() + " GBP");
             }
-            return new RiskResult(true, null, null);
+            boolean review = amount.compareTo(reviewThreshold) >= 0;
+            return RiskResult.pass(review, isChaps ? chapsFee.setScale(2).toPlainString() : "0.00");
+        });
+    }
+
+    @Override
+    public CopCheck confirmPayee(PaymentCommand c) {
+        return withCorrelation(c, () -> {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("name", c.creditorName());
+            body.put("sortCode", c.creditorSortCode());
+            body.put("accountNumber", c.creditorAccountNumber());
+            Map<String, Object> r;
+            try {
+                r = essence.post().uri("/v1/payees/confirm").body(body).retrieve().body(MAP);
+            } catch (RestClientResponseException e) {
+                throw ApplicationFailure.newFailure("Confirmation of Payee failed: " + e.getStatusCode(), "PAY-COP-002");
+            }
+            String result = r == null || r.get("result") == null ? "UNAVAILABLE" : String.valueOf(r.get("result"));
+            jdbc.sql("UPDATE payment SET cop_result = :r WHERE payment_id = :id AND created_at = :createdAt")
+                    .param("r", result)
+                    .param("id", UUID.fromString(c.paymentId()))
+                    .param("createdAt", OffsetDateTime.parse(c.initiatedAt()))
+                    .update();
+            log.info("payment.cop paymentId={} result={}", c.paymentId(), result);
+            return new CopCheck(result, r == null ? null : (String) r.get("matchedName"),
+                    r == null ? null : (String) r.get("reasonCode"));
+        });
+    }
+
+    @Override
+    public Window chapsWindow() {
+        Instant now = Instant.now();
+        Instant opens = chaps.nextOpening(now);
+        return new Window(chaps.isOpen(now), opens.atZone(ChapsWindow.UK).toOffsetDateTime().toString(),
+                Math.max(0, opens.toEpochMilli() - now.toEpochMilli()));
+    }
+
+    @Override
+    public String chargeFee(PaymentCommand c, String fee) {
+        return withCorrelation(c, () -> {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("amount", Map.of("value", fee, "currency", c.currency()));
+            // Same reference as the payment, so reconciliation sees payment and fee together.
+            body.put("reference", c.paymentId());
+            Map<String, Object> r;
+            try {
+                r = essence.post().uri("/v1/accounts/{acc}/fees", c.debtorAccount())
+                        .header("Idempotency-Key", "fee:" + c.paymentId())
+                        .body(body).retrieve().body(MAP);
+            } catch (RestClientResponseException e) {
+                throw ApplicationFailure.newFailure("Fee not posted: " + e.getStatusCode(), "VND-REJECT-001");
+            }
+            jdbc.sql("UPDATE payment SET fee = :fee WHERE payment_id = :id AND created_at = :createdAt")
+                    .param("fee", new BigDecimal(fee))
+                    .param("id", UUID.fromString(c.paymentId()))
+                    .param("createdAt", OffsetDateTime.parse(c.initiatedAt()))
+                    .update();
+            log.info("payment.fee paymentId={} fee={}", c.paymentId(), fee);
+            return String.valueOf(r == null ? null : r.get("postingRef"));
         });
     }
 
@@ -200,6 +283,7 @@ public class PaymentActivitiesImpl implements PaymentActivities {
             // Our payment ID travels as the end-to-end ID, so Finastra's status reports name the payment.
             body.put("endToEndId", c.paymentId());
             body.put("idempotencyKey", c.paymentId());
+            body.put("scheme", "CHAPS".equals(c.paymentType()) ? "CHAPS" : "FPS");
             Map<String, Object> result;
             try {
                 result = essence.post().uri("/v1/payments").body(body).retrieve().body(MAP);

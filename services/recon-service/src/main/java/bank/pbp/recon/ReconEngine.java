@@ -29,8 +29,9 @@ import org.springframework.web.client.RestClient;
  * Proves every money movement the bank recorded against Essence postings for one business date
  * (LLD section 8). Three runs per date:
  * <ul>
- *   <li>PAYMENTS: same-bank and other-bank payments (ref = payment ID) and inbound credits
- *       (ref = Finastra reference) → matching Essence debit or credit for the exact amount</li>
+ *   <li>PAYMENTS: same-bank, Faster Payments and CHAPS payments (ref = payment ID; debit = amount
+ *       plus any fee), inbound Faster Payments and Bacs credits, and paid Direct Debits (ref =
+ *       Finastra reference) → matching Essence debit or credit for the exact amount</li>
  *   <li>CARDS: presentments in auth_log (ref = Essence posting ref) → matching debit</li>
  *   <li>ESSENCE: Essence postings no bank record explains. References whose debits and credits net
  *       to zero (a payment Finastra returned) are self-cancelling and ignored.</li>
@@ -78,9 +79,14 @@ public class ReconEngine {
 
             Result pay = new Result("PAYMENTS", "payments-ops");
             for (JsonNode p : payments) {
-                boolean inbound = "INBOUND".equals(p.path("type").asText());
-                String ref = inbound ? p.path("finastraRef").asText() : p.path("paymentId").asText();
-                BigDecimal amount = new BigDecimal(p.path("amount").asText());
+                String type = p.path("type").asText();
+                boolean inbound = "INBOUND".equals(type);
+                // Money in and Direct Debits carry Finastra's reference; payments we send carry our payment ID.
+                boolean vendorRef = inbound || "DIRECT_DEBIT".equals(type);
+                String ref = vendorRef ? p.path("finastraRef").asText() : p.path("paymentId").asText();
+                // A fee (CHAPS) is posted under the payment's reference, so it is expected in the same debit total.
+                BigDecimal amount = new BigDecimal(p.path("amount").asText())
+                        .add(new BigDecimal(p.path("fee").asText("0")));
                 Totals t = byRef.get(ref);
                 explained.add(ref);
                 if (t == null) {

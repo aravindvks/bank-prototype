@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end smoke test for Phase 0, using Priya and Ravi from the HLD flows.
+# End-to-end smoke test, using Priya, Ravi and Asha from the HLD flows.
 # Needs: make up (all services running). Uses only curl, grep and sed.
 set -euo pipefail
 
@@ -29,6 +29,16 @@ pass() { printf '  \033[32mPASS\033[0m %s\n' "$1"; }
 fail() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; exit 1; }
 field() { grep -o "\"$1\":\"[^\"]*\"" | head -1 | sed "s/\"$1\":\"\(.*\)\"/\1/"; }
 uuid() { cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen | tr 'A-Z' 'a-z'; }
+# Top-level status of a payment (GET /v1/payments/{id}); history entries use from/to, not status.
+pstatus() { curl -s "$BFF/v1/payments/$1" -H "$PRIYA_H" | grep -o '"status":"[A-Z_]*"' | head -1 | sed 's/.*:"\(.*\)"/\1/'; }
+# Waits until a payment reaches one of the statuses in $2 (a grep -E pattern); prints the payment.
+wait_payment() { local p st; for _ in $(seq 1 "${3:-20}"); do st=$(pstatus "$1"); echo "$st" | grep -qE "^($2)$" && break; sleep 1; done
+  curl -s "$BFF/v1/payments/$1" -H "$PRIYA_H"; }
+# Payment ID of the row in a payments list with the given Finastra or Bacs reference.
+row_id() { echo "$1" | grep -oE "\"paymentId\":\"[^\"]*\",\"correlationId\":\"[^\"]*\",\"customerId\":\"[^\"]*\",\"debitAccount\":\"[^\"]*\",\"creditor\":\"(\\\\.|[^\"\\\\])*\",\"amount\":\"[^\"]*\",\"currency\":\"[^\"]*\",\"paymentType\":\"[^\"]*\",\"status\":\"[^\"]*\",\"finastraRef\":\"$2\"" | head -1 | field paymentId; }
+# The fields of one schedule or mandate in a list, from its ID to the end of that entry.
+entry() { echo "$1" | grep -o "\"$2\":\"$3\".*" | sed "s/\"$4\".*//"; }
+pay() { curl -sf -X POST "$BFF/v1/payments" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuid)" -H "$PRIYA_H" -d "$1" | field paymentId; }
 
 echo "1. Priya's customer record and vendor links (mapping service)"
 existing=$(curl -s "$MAPPING/v1/resolve?system=ESSENCE&type=ACCOUNT&id=ACC-5501" || true)
@@ -261,7 +271,111 @@ kill $CURL_PID 2>/dev/null || true
 grep -q "payment.received" "$EVENTS" && pass "Pushed over Server-Sent Events: $(grep -o '"type":"payment.received"[^}]*' "$EVENTS" | head -1 | head -c 120)…" \
   || fail "No payment.received event on the stream: $(head -c 400 "$EVENTS")"
 
-echo "17. Reconciliation: today's payments and card settlements all match Essence; a rogue posting is caught"
+echo "17. Confirmation of Payee: the name is checked with the payee's bank before money moves"
+cop() { curl -sf -X POST "$BFF/v1/payees/confirm" -H 'Content-Type: application/json' -H "$PRIYA_H" \
+  -d "{\"name\":\"$1\",\"sortCode\":\"$2\",\"accountNumber\":\"$3\"}"; }
+r=$(cop "Ravi Kumar" 200001 41550198); echo "$r" | grep -q '"result":"MATCH"' && pass "Ravi Kumar → MATCH" || fail "Expected MATCH, got $r"
+r=$(cop "R Kumar" 200001 41550198)
+echo "$r" | grep -q '"result":"CLOSE_MATCH"' && echo "$r" | grep -q '"matchedName":"Ravi Kumar"' \
+  && pass "R Kumar → CLOSE_MATCH, account held by Ravi Kumar" || fail "Expected CLOSE_MATCH, got $r"
+r=$(cop "John Smith" 200001 41550198); echo "$r" | grep -q '"result":"NO_MATCH"' && pass "John Smith → NO_MATCH" || fail "Expected NO_MATCH, got $r"
+r=$(cop "Anyone" 980000 12345678); echo "$r" | grep -q '"result":"UNAVAILABLE"' && pass "Bank outside CoP → UNAVAILABLE" || fail "Expected UNAVAILABLE, got $r"
+NM=$(pay '{"debtorAccount":"ACC-5501","creditor":{"name":"John Smith","sortCode":"200001","accountNumber":"41550198"},"amount":{"value":"5.00","currency":"GBP"},"remittanceInfo":"CoP test"}')
+p=$(wait_payment "$NM" "REJECTED|COMPLETED|FAILED")
+echo "$p" | grep -q '"status":"REJECTED"' && echo "$p" | grep -q 'PAY-COP-001' && pass "Payment to a name that does not match: REJECTED with PAY-COP-001" \
+  || fail "Expected a PAY-COP-001 rejection, got $p"
+CM=$(pay '{"debtorAccount":"ACC-5501","creditor":{"name":"R Kumar","sortCode":"200001","accountNumber":"41550198"},"amount":{"value":"5.00","currency":"GBP"},"remittanceInfo":"CoP test","copResult":"CLOSE_MATCH"}')
+p=$(wait_payment "$CM" "REJECTED|COMPLETED|FAILED")
+echo "$p" | grep -q '"status":"COMPLETED"' && echo "$p" | grep -q '"copResult":"CLOSE_MATCH"' \
+  && pass "Close match the customer confirmed: COMPLETED, result kept on the payment" || fail "Expected COMPLETED after a confirmed close match, got $p"
+
+echo "18. Standing orders and scheduled payments (Temporal timers; each run is a normal payment saga)"
+TODAY=$(TZ=Europe/London date +%F)
+TOMORROW=$(TZ=Europe/London date -d '+1 day' +%F 2>/dev/null || TZ=Europe/London date -v+1d +%F)
+sched() { curl -sf -X POST "$BFF/v1/schedules" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuid)" -H "$PRIYA_H" -d "$1" | field scheduleId; }
+SO=$(sched "{\"kind\":\"STANDING_ORDER\",\"frequency\":\"MONTHLY\",\"startDate\":\"$TODAY\",\"debtorAccount\":\"ACC-5501\",\"creditor\":{\"name\":\"Ravi Kumar\",\"sortCode\":\"200001\",\"accountNumber\":\"41550198\"},\"amount\":{\"value\":\"10.00\",\"currency\":\"GBP\"},\"reference\":\"Rent share\",\"copResult\":\"MATCH\"}")
+[ -n "$SO" ] && pass "Monthly standing order $SO accepted, first payment today" || fail "No scheduleId for the standing order"
+for _ in $(seq 1 25); do e=$(entry "$(curl -sf "$BFF/v1/schedules" -H "$PRIYA_H")" scheduleId "$SO" createdAt)
+  echo "$e" | grep -q '"paymentsMade":1' && echo "$e" | grep -q '"lastStatus":"COMPLETED"' && break; sleep 1; done
+echo "$e" | grep -q '"paymentsMade":1' && echo "$e" | grep -q '"lastStatus":"COMPLETED"' && ! echo "$e" | grep -q "\"nextDate\":\"$TODAY\"" \
+  && pass "First payment made; next due $(echo "$e" | field nextDate)" || fail "Standing order did not pay today: $e"
+curl -sf -X DELETE "$BFF/v1/schedules/$SO" -H "$PRIYA_H" >/dev/null
+for _ in $(seq 1 15); do e=$(entry "$(curl -sf "$BFF/v1/schedules" -H "$PRIYA_H")" scheduleId "$SO" createdAt)
+  echo "$e" | grep -q '"status":"CANCELLED"' && break; sleep 1; done
+echo "$e" | grep -q '"status":"CANCELLED"' && pass "Standing order cancelled" || fail "Expected CANCELLED, got $e"
+ONE=$(sched "{\"kind\":\"ONE_OFF\",\"startDate\":\"$TOMORROW\",\"debtorAccount\":\"ACC-5501\",\"creditor\":{\"name\":\"Ravi Kumar\",\"sortCode\":\"200001\",\"accountNumber\":\"41550198\"},\"amount\":{\"value\":\"7.00\",\"currency\":\"GBP\"},\"reference\":\"Tickets\",\"copResult\":\"MATCH\"}")
+for _ in $(seq 1 15); do e=$(entry "$(curl -sf "$BFF/v1/schedules" -H "$PRIYA_H")" scheduleId "$ONE" createdAt)
+  echo "$e" | grep -q "\"nextDate\":\"$TOMORROW\"" && break; sleep 1; done
+echo "$e" | grep -q "\"nextDate\":\"$TOMORROW\"" && echo "$e" | grep -q '"paymentsMade":0' && pass "Payment scheduled for $TOMORROW, nothing paid yet" \
+  || fail "Expected a payment due $TOMORROW, got $e"
+curl -sf -X POST "$BFF/v1/schedules/$ONE/run-now" -H "$PRIYA_H" >/dev/null
+for _ in $(seq 1 25); do e=$(entry "$(curl -sf "$BFF/v1/schedules" -H "$PRIYA_H")" scheduleId "$ONE" createdAt)
+  echo "$e" | grep -q '"status":"COMPLETED"' && break; sleep 1; done
+echo "$e" | grep -q '"status":"COMPLETED"' && echo "$e" | grep -q '"lastStatus":"COMPLETED"' && pass "Demo 'pay now': the scheduled payment was made and the schedule ended" \
+  || fail "Expected the scheduled payment to complete, got $e"
+
+echo "19. Bacs Direct Credit: Priya's salary arrives in a Bacs file from her employer"
+curl -sf -X POST "$SIM/essence/v1/sim/bacs/credits" -H 'Content-Type: application/json' \
+  -d '{"originatorName":"ACME LTD","credits":[{"creditAccountId":"ACC-5501","amount":"2500.00","reference":"SALARY NOV"}]}' >/dev/null
+for _ in $(seq 1 15); do list=$(curl -sf "$BFF/v1/payments" -H "$PRIYA_H")
+  echo "$list" | grep -q '\\"scheme\\":\\"BACS\\"' && break; sleep 1; done
+echo "$list" | grep -q '\\"scheme\\":\\"BACS\\"' && echo "$list" | grep -q '"amount":"2500.00","currency":"GBP","paymentType":"INBOUND","status":"COMPLETED"' \
+  && pass "£2,500 from ACME LTD recorded as an INBOUND Bacs credit" || fail "No completed Bacs credit for Priya: $(echo "$list" | head -c 400)"
+
+echo "20. Direct Debits: a mandate, a collection paid, one returned unpaid, a Guarantee refund, then cancellation"
+m=$(curl -sf -X POST "$SIM/essence/v1/sim/dd/mandates" -H 'Content-Type: application/json' \
+  -d '{"accountId":"ACC-5501","originatorName":"Brightside Energy","serviceUserNumber":"275431","payerReference":"BE-PRIYA-01"}')
+MREF=$(echo "$m" | field mandateRef)
+for _ in $(seq 1 15); do dd=$(curl -sf "$BFF/v1/direct-debits" -H "$PRIYA_H"); e=$(entry "$dd" mandateRef "$MREF" createdAt)
+  echo "$e" | grep -q '"status":"ACTIVE"' && break; sleep 1; done
+MID=$(echo "$dd" | grep -o "\"mandateId\":\"[^\"]*\",\"mandateRef\":\"$MREF\"" | field mandateId)
+[ -n "$MID" ] && pass "AUDDIS: Brightside Energy's mandate $MREF is ACTIVE on Priya's account" || fail "Mandate not set up: $dd"
+collect() { curl -sf -X POST "$SIM/essence/v1/sim/dd/collections" -H 'Content-Type: application/json' \
+  -d "{\"mandateRef\":\"$MREF\",\"amount\":\"$1\"}" | field collectionRef; }
+dd_row() { for _ in $(seq 1 20); do list=$(curl -sf "$BFF/v1/payments" -H "$PRIYA_H")
+  echo "$list" | grep -q "\"paymentType\":\"DIRECT_DEBIT\",\"status\":\"$2\",\"finastraRef\":\"$1\"" && break; sleep 1; done; row_id "$list" "$1"; }
+C1=$(collect 30.00); DD1=$(dd_row "$C1" COMPLETED)
+[ -n "$DD1" ] && pass "£30 collection $C1 paid on its due date (payment $DD1)" || fail "Collection $C1 not paid: $(curl -sf "$BFF/v1/payments" -H "$PRIYA_H" | head -c 400)"
+C2=$(collect 90000.00); DD2=$(dd_row "$C2" RETURNED)
+p=$(curl -s "$BFF/v1/payments/$DD2" -H "$PRIYA_H")
+echo "$p" | grep -q 'ARUDD 0' && pass "£90,000 collection returned unpaid: ARUDD 0 (refer to payer, not enough money)" || fail "Expected an ARUDD 0 return, got $p"
+curl -sf -X POST "$BFF/v1/direct-debits/claims" -H 'Content-Type: application/json' -H "$PRIYA_H" -d "{\"paymentId\":\"$DD1\"}" >/dev/null
+p=$(wait_payment "$DD1" "REFUNDED")
+echo "$p" | grep -q '"status":"REFUNDED"' && pass "Direct Debit Guarantee: £30 refunded at once, indemnity claim raised on the originator" \
+  || fail "Expected REFUNDED, got $p"
+curl -sf -X DELETE "$BFF/v1/direct-debits/$MID" -H "$PRIYA_H" >/dev/null
+for _ in $(seq 1 15); do e=$(entry "$(curl -sf "$BFF/v1/direct-debits" -H "$PRIYA_H")" mandateRef "$MREF" createdAt)
+  echo "$e" | grep -q '"status":"CANCELLED"' && break; sleep 1; done
+echo "$e" | grep -q '"status":"CANCELLED"' && pass "Mandate cancelled by Priya (ADDACS sent to the originator)" || fail "Expected CANCELLED, got $e"
+C3=$(collect 30.00); DD3=$(dd_row "$C3" RETURNED)
+p=$(curl -s "$BFF/v1/payments/$DD3" -H "$PRIYA_H")
+echo "$p" | grep -q 'ARUDD 1' && pass "A later collection is returned: ARUDD 1 (instruction cancelled)" || fail "Expected an ARUDD 1 return, got $p"
+
+echo "21. CHAPS: a £12,000 house deposit is held for staff approval, then sent within CHAPS hours with a £20 fee"
+curl -sf -X POST "$SIM/essence/v1/sim/inbound" -H 'Content-Type: application/json' \
+  -d '{"creditAccountId":"ACC-5501","amount":"15000.00","debtorName":"Priya Shah","reference":"From savings"}' >/dev/null
+sleep 2
+CH=$(pay '{"debtorAccount":"ACC-5501","creditor":{"name":"Northwind Lettings Ltd","sortCode":"309634","accountNumber":"55667788"},"amount":{"value":"12000.00","currency":"GBP"},"remittanceInfo":"Deposit","copResult":"MATCH","scheme":"CHAPS"}')
+p=$(wait_payment "$CH" "HELD|REJECTED|FAILED")
+echo "$p" | grep -q '"status":"HELD"' && echo "$p" | grep -q '"paymentType":"CHAPS"' && pass "CHAPS payment $CH HELD for approval (£10,000 or more)" \
+  || fail "Expected a HELD CHAPS payment, got $p"
+q=$(curl -sf "$BFF/v1/staff/queue" -H "$STAFF_H")
+echo "$q" | grep -q "\"paymentId\":\"$CH\"" && pass "It is in the staff Control Room queue" || fail "Held payment not in the staff queue: $q"
+curl -sf -X POST "$BFF/v1/staff/payments/$CH/decision" -H 'Content-Type: application/json' -H "$STAFF_H" \
+  -d '{"decision":"APPROVE","note":"Called the customer (smoke test)"}' >/dev/null
+DOW=$(TZ=Europe/London date +%u); HM=$(TZ=Europe/London date +%H%M)
+HOLIDAYS=" 2026-12-25 2026-12-28 2027-01-01 2027-03-26 2027-03-29 2027-05-03 2027-05-31 2027-08-30 2027-12-27 2027-12-28 "
+if [ "$DOW" -le 5 ] && [ "$HM" -ge 0600 ] && [ "$HM" -lt 1730 ] && ! echo "$HOLIDAYS" | grep -q " $TODAY "; then
+  p=$(wait_payment "$CH" "COMPLETED|REJECTED|FAILED|QUEUED")
+  echo "$p" | grep -q '"status":"COMPLETED"' && echo "$p" | grep -q '"fee":"20.00"' && echo "$p" | grep -q 'Approved by' \
+    && pass "Approved and settled by CHAPS; £20 fee charged" || fail "Expected COMPLETED with a £20 fee, got $p"
+else
+  p=$(wait_payment "$CH" "QUEUED|COMPLETED|REJECTED|FAILED")
+  echo "$p" | grep -q '"status":"QUEUED"' && pass "Approved; CHAPS is closed now (UK $HM, day $DOW), so it waits for the next opening" \
+    || fail "Expected QUEUED outside CHAPS hours, got $p"
+fi
+
+echo "22. Reconciliation: today's payments and card settlements all match Essence; a rogue posting is caught"
 curl -sf -X POST "$SIM/essence/v1/sim/rogue-posting" -H 'Content-Type: application/json' -d '{"accountId":"ACC-5510","amount":"7.77"}' >/dev/null
 rec=$(curl -sf -X POST "$BFF/v1/staff/recon/runs" -H "$STAFF_H")
 echo "$rec" | grep -q '"source":"PAYMENTS","matched":[1-9][0-9]*,"exceptions":0' && pass "PAYMENTS: all matched ($(echo "$rec" | grep -o '"source":"PAYMENTS"[^}]*'))" \
@@ -272,7 +386,7 @@ exc=$(curl -sf "$BFF/v1/staff/recon/exceptions" -H "$STAFF_H")
 echo "$exc" | grep -q '"type":"MISSING_IN_SOURCE","sourceRef":"ROGUE-' && pass "Rogue Essence posting reported as MISSING_IN_SOURCE" \
   || fail "Rogue posting not reported: $exc"
 
-echo "18. Outbox relay: every event above travelled through service outbox tables and Debezium"
+echo "23. Outbox relay: every event above travelled through service outbox tables and Debezium"
 st=$(curl -sf "$CONNECT/connectors/pbp-outbox/status" || true)
 if [ -n "$st" ]; then
   echo "$st" | grep -q '"state":"RUNNING"' && ! echo "$st" | grep -q '"state":"FAILED"' \
@@ -282,7 +396,7 @@ else
 fi
 
 if [ "$AUTH" = 1 ]; then
-  echo "19. Login: no token is refused; a view-only staff login cannot decide reviews"
+  echo "24. Login: no token is refused; a view-only staff login cannot decide reviews"
   code=$(curl -s -o /dev/null -w '%{http_code}' "$BFF/v1/me")
   [ "$code" = "401" ] && pass "No token → 401" || fail "Expected 401 without a token, got $code"
   code=$(curl -s -o /dev/null -w '%{http_code}' "$BFF/v1/staff/queue" -H "Authorization: Bearer $PRIYA_TOKEN")

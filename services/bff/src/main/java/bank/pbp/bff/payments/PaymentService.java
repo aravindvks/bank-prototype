@@ -50,6 +50,7 @@ public class PaymentService {
             data.put("purpose", request.purpose());
             data.put("remittanceInfo", request.remittanceInfo());
             data.put("copResult", request.copResult());
+            data.put("scheme", request.scheme());
             data.put("idempotencyKey", key);
             // Microsecond precision matches PostgreSQL timestamptz, so the orchestrator can use it as a key.
             data.put("initiatedAt", Instant.now().truncatedTo(ChronoUnit.MICROS).toString());

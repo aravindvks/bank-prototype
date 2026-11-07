@@ -101,7 +101,54 @@ public class EssenceController {
                                                           @RequestHeader(value = SCENARIO, required = false) String scenario) {
         return timed("payments.submit", () -> essence.submitPayment(new PaymentInstruction(req.debitAccount(),
                 req.creditor().name(), req.creditor().sortCode(), req.creditor().accountNumber(), req.amount().value(),
-                req.amount().currency(), req.reference(), req.endToEndId(), req.idempotencyKey()), scenario));
+                req.amount().currency(), req.reference(), req.endToEndId(), req.idempotencyKey(),
+                req.scheme() == null ? "FPS" : req.scheme()), scenario));
+    }
+
+    /** Confirmation of Payee (LLD section 6: POST /v1/payees/confirm). */
+    @PostMapping("/payees/confirm")
+    public EssenceGateway.CopResult confirmPayee(@Valid @RequestBody CopRequest req,
+                                                 @RequestHeader(value = SCENARIO, required = false) String scenario) {
+        return timed("payees.confirm", () -> essence.confirmPayee(req.name(), req.sortCode(), req.accountNumber(), scenario));
+    }
+
+    @PostMapping("/accounts/{accountId}/fees")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Map<String, String> fee(@PathVariable String accountId, @Valid @RequestBody FeeRequest req,
+                                   @RequestHeader("Idempotency-Key") String key) {
+        String postingRef = timed("fees.charge", () -> essence.chargeFee(accountId, req.amount().value(),
+                req.amount().currency(), req.reference(), key));
+        return Map.of("postingRef", String.valueOf(postingRef));
+    }
+
+    @PostMapping("/direct-debits/collections/{ref}/pay")
+    public Map<String, String> payCollection(@PathVariable String ref) {
+        String postingRef = timed("directdebits.pay", () -> essence.payCollection(ref));
+        return Map.of("collectionRef", ref, "status", "PAID", "postingRef", String.valueOf(postingRef));
+    }
+
+    @PostMapping("/direct-debits/collections/{ref}/return")
+    public Map<String, String> returnCollection(@PathVariable String ref, @Valid @RequestBody ReasonRequest req) {
+        timed("directdebits.return", () -> {
+            essence.returnCollection(ref, req.reasonCode());
+            return null;
+        });
+        return Map.of("collectionRef", ref, "status", "RETURNED", "reasonCode", req.reasonCode());
+    }
+
+    @PostMapping("/direct-debits/collections/{ref}/indemnity")
+    public Map<String, String> indemnity(@PathVariable String ref, @Valid @RequestBody ReasonRequest req) {
+        String claimRef = timed("directdebits.indemnity", () -> essence.indemnityClaim(ref, req.reasonCode()));
+        return Map.of("collectionRef", ref, "status", "REFUNDED", "claimRef", String.valueOf(claimRef));
+    }
+
+    @PostMapping("/direct-debits/mandates/{ref}/cancel")
+    public Map<String, String> cancelMandate(@PathVariable String ref, @Valid @RequestBody ReasonRequest req) {
+        timed("directdebits.cancel", () -> {
+            essence.cancelMandate(ref, req.reasonCode());
+            return null;
+        });
+        return Map.of("mandateRef", ref, "status", "CANCELLED");
     }
 
     @GetMapping("/postings")
@@ -146,6 +193,18 @@ public class EssenceController {
 
     public record PaymentRequest(@NotBlank String debitAccount, @NotNull @Valid Creditor creditor,
                                  @NotNull @Valid Money amount, String reference, @NotBlank String endToEndId,
-                                 @NotBlank String idempotencyKey) {
+                                 @NotBlank String idempotencyKey,
+                                 @Pattern(regexp = "FPS|CHAPS") String scheme) {
+    }
+
+    public record CopRequest(@NotBlank String name,
+                             @NotBlank @Pattern(regexp = "\\d{6}") String sortCode,
+                             @NotBlank @Pattern(regexp = "\\d{8}") String accountNumber) {
+    }
+
+    public record FeeRequest(@NotNull @Valid Money amount, @NotBlank String reference) {
+    }
+
+    public record ReasonRequest(@NotBlank @Pattern(regexp = "[0-9A-Z]{1,2}") String reasonCode) {
     }
 }

@@ -60,7 +60,8 @@ public class InboundActivitiesImpl implements InboundPaymentWorkflow.InboundActi
     public void record(InboundCredit c, String customerId) {
         withCorrelation(c.correlationId(), () -> tx.execute(s -> {
             Map<String, String> creditor = Map.of("account", c.creditAccount(), "debtorName", c.debtorName(),
-                    "debtorSortCode", c.debtorSortCode(), "reference", c.reference());
+                    "debtorSortCode", c.debtorSortCode(), "reference", c.reference(),
+                    "scheme", c.scheme() == null || c.scheme().isBlank() ? "FPS" : c.scheme());
             int inserted = jdbc.sql("""
                             INSERT INTO payment (payment_id, correlation_id, customer_id, debit_account, creditor,
                                                  amount, currency, payment_type, status, finastra_ref,

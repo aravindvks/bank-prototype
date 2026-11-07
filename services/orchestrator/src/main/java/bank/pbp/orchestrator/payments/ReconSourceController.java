@@ -8,7 +8,11 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Reconciliation source (LLD section 8): payments the bank believes moved money on a business date. */
+/**
+ * Reconciliation source (LLD section 8): payments the bank believes moved money on a business date.
+ * Includes Direct Debits paid (COMPLETED); returned ones never moved money and refunded ones net
+ * to zero in Essence. The fee travels with its payment (same Essence reference).
+ */
 @RestController
 public class ReconSourceController {
 
@@ -22,7 +26,8 @@ public class ReconSourceController {
     public List<Map<String, Object>> payments(@RequestParam LocalDate date) {
         return jdbc.sql("""
                         SELECT payment_id::text AS "paymentId", payment_type AS type, status, amount::text AS amount,
-                               finastra_ref AS "finastraRef", correlation_id AS "correlationId"
+                               COALESCE(fee, 0)::text AS fee, finastra_ref AS "finastraRef",
+                               correlation_id AS "correlationId"
                         FROM payment
                         WHERE (created_at AT TIME ZONE 'UTC')::date = :date
                           AND status IN ('COMPLETED','FLAGGED')""")

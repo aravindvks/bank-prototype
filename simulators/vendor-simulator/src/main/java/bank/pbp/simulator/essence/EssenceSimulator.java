@@ -55,6 +55,10 @@ public class EssenceSimulator {
         holds.clear();
         byRequestId.clear();
         postings.clear();
+        if (mandates != null) {
+            mandates.clear();
+            collections.clear();
+        }
         for (Account a : List.of(
                 new Account("ACC-5501", "41550123", "Priya Shah", "1000.00"),
                 new Account("ACC-5510", "41550198", "Ravi Kumar", "800.00"),
@@ -230,7 +234,8 @@ public class EssenceSimulator {
         String finastraRef = "FIN-" + shortId();
         String creditorSortCode = String.valueOf(req.get("creditorSortCode"));
         boolean reject = "scheme-reject".equals(scenario) || creditorSortCode.startsWith("99");
-        String scheme = amount.compareTo(new BigDecimal("1000000.00")) > 0 ? "CHAPS" : "FPS";
+        // The bank chooses the scheme (FPS or CHAPS); the simulator only checks it is one Finastra routes.
+        String scheme = "CHAPS".equals(req.get("scheme")) ? "CHAPS" : "FPS";
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("finastraRef", finastraRef);
@@ -277,13 +282,13 @@ public class EssenceSimulator {
         }
         BigDecimal amount = new BigDecimal(String.valueOf(req.getOrDefault("amount", "20.00")));
         a.ledger = a.ledger.add(amount);
-        String inRef = "FIN-IN-" + shortId();
+        String inRef = ("BACS".equals(req.get("scheme")) ? "BACS-IN-" : "FIN-IN-") + shortId();
         post(a.id, amount, inRef, "PAYMENT_IN");
         Map<String, Object> e = new LinkedHashMap<>();
         e.put("eventId", "EVT-" + shortId());
         e.put("type", "credit.received");
         e.put("finastraRef", inRef);
-        e.put("scheme", "FPS");
+        e.put("scheme", "BACS".equals(req.get("scheme")) ? "BACS" : "FPS");
         e.put("creditAccountId", a.id);
         e.put("amount", amount.toPlainString());
         e.put("currency", "GBP");
@@ -292,6 +297,278 @@ public class EssenceSimulator {
         e.put("reference", String.valueOf(req.getOrDefault("reference", "Payment")));
         webhooks.send(webhookUrl, e, 200);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(e);
+    }
+
+    // ---------- Bacs Direct Credits (salary runs) ----------
+
+    /**
+     * A Bacs credit file from an employer: every line credits an account on day 3 of the cycle and
+     * notifies the bank as {@code credit.received} with scheme BACS. The simulator posts them at once.
+     */
+    @PostMapping("/sim/bacs/credits")
+    public synchronized ResponseEntity<?> bacsCredits(@RequestBody Map<String, Object> req) {
+        Object lines = req.get("credits");
+        if (!(lines instanceof List<?> list) || list.isEmpty()) {
+            return error(HttpStatus.BAD_REQUEST, "INVALID_FILE", "credits must be a non-empty list");
+        }
+        String originator = String.valueOf(req.getOrDefault("originatorName", "ACME LTD"));
+        List<Object> results = new java.util.ArrayList<>();
+        for (Object line : list) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> l = new LinkedHashMap<>((Map<String, Object>) line);
+            l.put("scheme", "BACS");
+            l.putIfAbsent("debtorName", originator);
+            l.putIfAbsent("debtorSortCode", "309634");
+            l.putIfAbsent("reference", "SALARY");
+            ResponseEntity<?> r = inbound(l);
+            results.add(r.getBody());
+        }
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of("originatorName", originator, "credits", results));
+    }
+
+    // ---------- Confirmation of Payee ----------
+
+    /** Accounts at other banks the simulated CoP directory knows. Anything else at another bank matches. */
+    private static final Map<String, String> COP_DIRECTORY = Map.of(
+            "040004:12345678", "Arjun Mehta",
+            "309634:55667788", "Northwind Lettings Ltd");
+
+    /**
+     * Name check against the account holder (Pay.UK CoP rules, simplified): exact after
+     * normalising → MATCH; same surname and initial, or one or two letters out → CLOSE_MATCH with
+     * the real name; otherwise NO_MATCH. Sort codes 98-xx-xx belong to a bank outside CoP
+     * (UNAVAILABLE); account number 00000000 does not exist (NO_MATCH, AC01).
+     */
+    @PostMapping("/cop")
+    public ResponseEntity<?> confirmPayee(@RequestBody Map<String, Object> req,
+                                          @RequestHeader(value = Scenario.HEADER, required = false) String scenario) {
+        if ("cop-unavailable".equals(scenario)) {
+            return ResponseEntity.ok(Map.of("result", "UNAVAILABLE", "reasonCode", "SCNS"));
+        }
+        Scenario.apply(scenario);
+        String name = String.valueOf(req.getOrDefault("name", ""));
+        String sortCode = String.valueOf(req.get("sortCode"));
+        String number = String.valueOf(req.get("accountNumber"));
+        String holder;
+        if (BANK_SORT_CODE.equals(sortCode)) {
+            holder = findByNumber(sortCode, number).map(a -> a.name).orElse(null);
+        } else if (sortCode.startsWith("98")) {
+            return ResponseEntity.ok(Map.of("result", "UNAVAILABLE", "reasonCode", "SCNS"));
+        } else if ("00000000".equals(number)) {
+            holder = null;
+        } else {
+            holder = COP_DIRECTORY.getOrDefault(sortCode + ":" + number, name);
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        if (holder == null) {
+            body.put("result", "NO_MATCH");
+            body.put("reasonCode", "AC01");
+        } else {
+            String verdict = CopNames.compare(name, holder);
+            body.put("result", verdict);
+            if ("CLOSE_MATCH".equals(verdict)) {
+                body.put("matchedName", holder);
+                body.put("reasonCode", "MBAM");
+            } else if ("NO_MATCH".equals(verdict)) {
+                body.put("reasonCode", "ANNM");
+            }
+        }
+        return ResponseEntity.ok(body);
+    }
+
+    // ---------- fees ----------
+
+    /** A charge the bank's tariff applies (e.g. the CHAPS fee). Fees post even if they take the account overdrawn. */
+    @PostMapping("/accounts/{accountId}/fees")
+    public synchronized ResponseEntity<?> fee(@PathVariable String accountId, @RequestBody Map<String, Object> req) {
+        Map<String, Object> cached = byRequestId.get("fee:" + req.get("clientRequestId"));
+        if (cached != null) {
+            return ResponseEntity.ok(cached);
+        }
+        Account a = accounts.get(accountId);
+        if (a == null) {
+            return error(HttpStatus.NOT_FOUND, "ACCOUNT_NOT_FOUND", "No account " + accountId);
+        }
+        BigDecimal amount = new BigDecimal(String.valueOf(req.get("amount")));
+        a.ledger = a.ledger.subtract(amount);
+        Map<String, Object> posting = post(a.id, amount.negate(), String.valueOf(req.get("reference")), "FEE");
+        Map<String, Object> body = Map.of("postingRef", posting.get("postingId"), "amount", amount.toPlainString());
+        byRequestId.put("fee:" + req.get("clientRequestId"), body);
+        return ResponseEntity.status(HttpStatus.CREATED).body(body);
+    }
+
+    // ---------- Direct Debits (Bacs, the bank is the payer's bank) ----------
+
+    private final Map<String, Mandate> mandates = new ConcurrentHashMap<>();
+    private final Map<String, Collection> collections = new ConcurrentHashMap<>();
+
+    /**
+     * Demo control: an originator (e.g. an energy company) lodges a new Direct Debit Instruction
+     * through AUDDIS (transaction code 0N). Essence notifies the bank with {@code dd.mandate}.
+     */
+    @PostMapping("/sim/dd/mandates")
+    public synchronized ResponseEntity<?> lodgeMandate(@RequestBody Map<String, Object> req) {
+        Account a = accounts.get(String.valueOf(req.get("accountId")));
+        if (a == null) {
+            return error(HttpStatus.NOT_FOUND, "ACCOUNT_NOT_FOUND", "No account " + req.get("accountId"));
+        }
+        Mandate m = new Mandate("DDM-" + shortId(), a.id,
+                String.valueOf(req.getOrDefault("originatorName", "Brightside Energy")),
+                String.valueOf(req.getOrDefault("serviceUserNumber", "123456")),
+                String.valueOf(req.getOrDefault("payerReference", "CUST-" + shortId())));
+        mandates.put(m.ref, m);
+        Map<String, Object> e = new LinkedHashMap<>();
+        e.put("eventId", "EVT-" + shortId());
+        e.put("type", "dd.mandate");
+        e.put("auddisCode", "0N");
+        e.put("mandateRef", m.ref);
+        e.put("accountId", a.id);
+        e.put("originatorName", m.originatorName);
+        e.put("serviceUserNumber", m.serviceUserNumber);
+        e.put("payerReference", m.payerReference);
+        webhooks.send(webhookUrl, e, 200);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(e);
+    }
+
+    /**
+     * Demo control: the originator submits a collection (Bacs day 1). Essence presents it to the
+     * bank with {@code dd.collection} and its due date (day 3); the bank answers pay or return.
+     * Collections are presented even on a cancelled mandate, as happens in Bacs.
+     */
+    @PostMapping("/sim/dd/collections")
+    public synchronized ResponseEntity<?> presentCollection(@RequestBody Map<String, Object> req) {
+        Mandate m = mandates.get(String.valueOf(req.get("mandateRef")));
+        if (m == null) {
+            return error(HttpStatus.NOT_FOUND, "MANDATE_NOT_FOUND", "No mandate " + req.get("mandateRef"));
+        }
+        BigDecimal amount = new BigDecimal(String.valueOf(req.getOrDefault("amount", "30.00")));
+        String due = String.valueOf(req.getOrDefault("dueDate",
+                java.time.LocalDate.now(java.time.ZoneId.of("Europe/London")).toString()));
+        Collection c = new Collection("DDC-" + shortId(), m.ref, m.accountId, amount);
+        collections.put(c.ref, c);
+        Map<String, Object> e = new LinkedHashMap<>();
+        e.put("eventId", "EVT-" + shortId());
+        e.put("type", "dd.collection");
+        e.put("collectionRef", c.ref);
+        e.put("mandateRef", m.ref);
+        e.put("accountId", m.accountId);
+        e.put("amount", amount.toPlainString());
+        e.put("currency", "GBP");
+        e.put("dueDate", due);
+        e.put("originatorName", m.originatorName);
+        e.put("serviceUserNumber", m.serviceUserNumber);
+        e.put("payerReference", m.payerReference);
+        webhooks.send(webhookUrl, e, 200);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(e);
+    }
+
+    /** The bank pays the collection: Essence debits the account (posting ref = collection ref). */
+    @PostMapping("/direct-debits/collections/{ref}/pay")
+    public synchronized ResponseEntity<?> payCollection(@PathVariable String ref) {
+        Collection c = collections.get(ref);
+        if (c == null) {
+            return error(HttpStatus.NOT_FOUND, "COLLECTION_NOT_FOUND", "No collection " + ref);
+        }
+        if ("PAID".equals(c.status)) {
+            return ResponseEntity.ok(Map.of("collectionRef", ref, "status", "PAID", "postingRef", c.postingRef));
+        }
+        if (!"PRESENTED".equals(c.status)) {
+            return error(HttpStatus.CONFLICT, "INVALID_STATE", "Collection is " + c.status);
+        }
+        Account a = accounts.get(c.accountId);
+        if (available(a).compareTo(c.amount) < 0) {
+            return error(HttpStatus.UNPROCESSABLE_ENTITY, "INSUFFICIENT_FUNDS", "Available balance is below the amount");
+        }
+        a.ledger = a.ledger.subtract(c.amount);
+        post(a.id, c.amount.negate(), c.ref, "DD_COLLECTION");
+        c.status = "PAID";
+        c.postingRef = "PST-" + shortId();
+        return ResponseEntity.ok(Map.of("collectionRef", ref, "status", "PAID", "postingRef", c.postingRef));
+    }
+
+    /** The bank returns the collection unpaid (ARUDD to the originator) with a Bacs reason code. */
+    @PostMapping("/direct-debits/collections/{ref}/return")
+    public synchronized ResponseEntity<?> returnCollection(@PathVariable String ref, @RequestBody Map<String, Object> req) {
+        Collection c = collections.get(ref);
+        if (c == null) {
+            return error(HttpStatus.NOT_FOUND, "COLLECTION_NOT_FOUND", "No collection " + ref);
+        }
+        if ("PAID".equals(c.status)) {
+            return error(HttpStatus.CONFLICT, "INVALID_STATE", "Collection already paid");
+        }
+        c.status = "RETURNED";
+        return ResponseEntity.ok(Map.of("collectionRef", ref, "status", "RETURNED",
+                "arudd", String.valueOf(req.getOrDefault("reasonCode", "0"))));
+    }
+
+    /**
+     * Direct Debit Guarantee refund: Essence credits the payer at once (posting ref = collection
+     * ref, so collection and refund net to zero) and raises an indemnity claim (DDICA) on the originator.
+     */
+    @PostMapping("/direct-debits/collections/{ref}/indemnity")
+    public synchronized ResponseEntity<?> indemnity(@PathVariable String ref, @RequestBody Map<String, Object> req) {
+        Collection c = collections.get(ref);
+        if (c == null) {
+            return error(HttpStatus.NOT_FOUND, "COLLECTION_NOT_FOUND", "No collection " + ref);
+        }
+        if ("REFUNDED".equals(c.status)) {
+            return ResponseEntity.ok(Map.of("collectionRef", ref, "status", "REFUNDED"));
+        }
+        if (!"PAID".equals(c.status)) {
+            return error(HttpStatus.CONFLICT, "INVALID_STATE", "Only a paid collection can be refunded");
+        }
+        Account a = accounts.get(c.accountId);
+        a.ledger = a.ledger.add(c.amount);
+        post(a.id, c.amount, c.ref, "DD_INDEMNITY");
+        c.status = "REFUNDED";
+        return ResponseEntity.ok(Map.of("collectionRef", ref, "status", "REFUNDED",
+                "ddicaReason", String.valueOf(req.getOrDefault("reasonCode", "1")),
+                "claimRef", "DDICA-" + shortId()));
+    }
+
+    /** The payer cancelled the mandate at the bank: Essence sends ADDACS (code 1) to the originator. */
+    @PostMapping("/direct-debits/mandates/{ref}/cancel")
+    public synchronized ResponseEntity<?> cancelMandate(@PathVariable String ref, @RequestBody(required = false) Map<String, Object> req) {
+        Mandate m = mandates.get(ref);
+        if (m == null) {
+            return error(HttpStatus.NOT_FOUND, "MANDATE_NOT_FOUND", "No mandate " + ref);
+        }
+        m.status = "CANCELLED";
+        return ResponseEntity.ok(Map.of("mandateRef", ref, "status", "CANCELLED",
+                "addacs", req == null ? "1" : String.valueOf(req.getOrDefault("reasonCode", "1"))));
+    }
+
+    static final class Mandate {
+        final String ref;
+        final String accountId;
+        final String originatorName;
+        final String serviceUserNumber;
+        final String payerReference;
+        String status = "ACTIVE";
+
+        Mandate(String ref, String accountId, String originatorName, String serviceUserNumber, String payerReference) {
+            this.ref = ref;
+            this.accountId = accountId;
+            this.originatorName = originatorName;
+            this.serviceUserNumber = serviceUserNumber;
+            this.payerReference = payerReference;
+        }
+    }
+
+    static final class Collection {
+        final String ref;
+        final String mandateRef;
+        final String accountId;
+        final BigDecimal amount;
+        String status = "PRESENTED";
+        String postingRef;
+
+        Collection(String ref, String mandateRef, String accountId, BigDecimal amount) {
+            this.ref = ref;
+            this.mandateRef = mandateRef;
+            this.accountId = accountId;
+            this.amount = amount;
+        }
     }
 
     // ---------- postings (reconciliation source) ----------

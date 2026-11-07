@@ -17,7 +17,8 @@ public class PaymentQueryController {
     private static final String COLUMNS = """
             payment_id::text AS "paymentId", correlation_id AS "correlationId", customer_id::text AS "customerId",
             debit_account AS "debitAccount", creditor::text AS creditor, amount::text AS amount, currency,
-            payment_type AS "paymentType", status, finastra_ref AS "finastraRef", created_at::text AS "createdAt\"""";
+            payment_type AS "paymentType", status, finastra_ref AS "finastraRef", created_at::text AS "createdAt",
+            cop_result AS "copResult", fee::text AS fee, schedule_id::text AS "scheduleId\"""";
 
     private final JdbcClient jdbc;
 

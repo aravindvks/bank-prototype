@@ -21,8 +21,8 @@ import org.springframework.security.web.SecurityFilterChain;
 /**
  * Login (LLD section 12). With {@code pbp.auth.enabled=true} every API call needs a bearer token
  * from Identity Domains (Keycloak stands in locally). Realm roles become authorities:
- * {@code staff} may view the staff portal; {@code compliance} may decide reviews and run
- * reconciliation. Customers are any signed-in user linked to a bank customer.
+ * {@code staff} may view the staff portal; {@code compliance} may decide reviews, approve or
+ * reject held payments and run reconciliation. Customers are any signed-in user linked to a bank customer.
  */
 @Configuration
 public class SecurityConfig {
@@ -39,7 +39,8 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ASYNC, jakarta.servlet.DispatcherType.ERROR)
                         .permitAll()
                         .requestMatchers("/actuator/**").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/v1/staff/reviews/**", "/v1/staff/recon/runs")
+                        .requestMatchers(HttpMethod.POST, "/v1/staff/reviews/**", "/v1/staff/recon/runs",
+                                "/v1/staff/payments/**")
                         .hasRole("compliance")
                         .requestMatchers("/v1/staff/**").hasAnyRole("staff", "compliance")
                         .anyRequest().authenticated())

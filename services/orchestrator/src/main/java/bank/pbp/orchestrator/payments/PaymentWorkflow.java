@@ -17,6 +17,10 @@ public interface PaymentWorkflow {
     @SignalMethod
     void paymentStatus(String status, String reason);
 
+    /** Staff decision on a HELD high-value payment: APPROVE or REJECT. */
+    @SignalMethod
+    void reviewDecision(String decision, String reviewer, String note);
+
     @QueryMethod
     String currentStatus();
 }

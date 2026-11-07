@@ -51,6 +51,12 @@ public class StaffController {
                                created_at::text AS "createdAt"
                         FROM payment WHERE status = 'FLAGGED' ORDER BY created_at""")
                 .query().listOfRows());
+        out.put("heldPayments", jdbc.sql("""
+                        SELECT payment_id::text AS "paymentId", customer_id::text AS "customerId",
+                               amount::text AS amount, payment_type AS "paymentType", creditor::text AS creditor,
+                               correlation_id AS "correlationId", created_at::text AS "createdAt"
+                        FROM payment WHERE status = 'HELD' ORDER BY created_at""")
+                .query().listOfRows());
         out.put("stuckSagas", jdbc.sql("""
                         SELECT saga_id::text AS "sagaId", saga_type AS type, customer_id::text AS "customerId",
                                current_step AS step, status, updated_at::text AS "updatedAt"
@@ -71,6 +77,25 @@ public class StaffController {
             throw new PbpException("GEN-NOTFOUND-001", 404, "Not found", "No open review " + sagaId);
         }
         return Map.of("sagaId", sagaId.toString(), "decision", body.decision(), "status", "SUBMITTED");
+    }
+
+    /** Decision on a HELD high-value payment: a signal to its payment saga. */
+    @PostMapping("/payments/{paymentId}/decision")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public Map<String, String> paymentDecision(@PathVariable UUID paymentId, @Valid @RequestBody PaymentDecision body) {
+        String status = jdbc.sql("SELECT status FROM payment WHERE payment_id = :id")
+                .param("id", paymentId).query(String.class).optional()
+                .orElseThrow(() -> new PbpException("GEN-NOTFOUND-001", 404, "Not found", "No payment " + paymentId));
+        if (!"HELD".equals(status)) {
+            throw new PbpException("PAY-STATE-001", 409, "Payment not held", "Payment " + paymentId + " is " + status);
+        }
+        try {
+            temporal.newWorkflowStub(bank.pbp.orchestrator.payments.PaymentWorkflow.class, "payment-" + paymentId)
+                    .reviewDecision(body.decision(), body.reviewer(), body.note());
+        } catch (WorkflowNotFoundException e) {
+            throw new PbpException("GEN-NOTFOUND-001", 404, "Not found", "No running payment " + paymentId);
+        }
+        return Map.of("paymentId", paymentId.toString(), "decision", body.decision(), "status", "SUBMITTED");
     }
 
     @GetMapping("/journeys/{correlationId}")
@@ -106,6 +131,11 @@ public class StaffController {
                                updated_at::text AS "updatedAt"
                         FROM saga ORDER BY updated_at DESC LIMIT 50""")
                 .query().listOfRows();
+    }
+
+    public record PaymentDecision(@NotBlank @Pattern(regexp = "APPROVE|REJECT") String decision,
+                                  @NotBlank String reviewer,
+                                  String note) {
     }
 
     public record Review(@NotBlank @Pattern(regexp = "CLEAR|CONFIRM") String decision,

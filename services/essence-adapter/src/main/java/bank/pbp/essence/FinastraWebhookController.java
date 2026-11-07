@@ -22,9 +22,11 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Finastra notification intake (LLD section 6): payment status and inbound credits.
- * Checks the signature, normalises to our vocabulary and publishes to payment-events:
- * {@code payment.scheme_status} and {@code credit.received}. The orchestrator decides what they mean.
+ * Finastra notification intake (LLD section 6): payment status, inbound credits (Faster Payments
+ * and Bacs) and Direct Debits. Checks the signature, normalises to our vocabulary and publishes to
+ * payment-events: {@code payment.scheme_status}, {@code credit.received},
+ * {@code directdebit.mandate_received} and {@code directdebit.collection_presented}.
+ * The orchestrator decides what they mean.
  */
 @RestController
 public class FinastraWebhookController {
@@ -79,6 +81,35 @@ public class FinastraWebhookController {
                 data.put("reference", n.path("reference").asText());
                 events.publish(Topics.PAYMENT_EVENTS,
                         EventEnvelope.of("credit.received", "essence-adapter", correlationId, null, null, data));
+            }
+            case "dd.mandate" -> {
+                // AUDDIS: an originator lodged a new Direct Debit Instruction on one of our accounts.
+                String correlationId = Ids.newCorrelationId(JourneyType.PAY);
+                Correlation.set(correlationId);
+                data.put("mandateRef", n.path("mandateRef").asText());
+                data.put("account", n.path("accountId").asText());
+                data.put("originatorName", n.path("originatorName").asText());
+                data.put("serviceUserNumber", n.path("serviceUserNumber").asText());
+                data.put("payerReference", n.path("payerReference").asText());
+                data.put("auddisCode", n.path("auddisCode").asText());
+                events.publish(Topics.PAYMENT_EVENTS,
+                        EventEnvelope.of("directdebit.mandate_received", "essence-adapter", correlationId, null, null, data));
+            }
+            case "dd.collection" -> {
+                // Bacs presents a collection against a mandate; the orchestrator decides pay or return.
+                String correlationId = Ids.newCorrelationId(JourneyType.PAY);
+                Correlation.set(correlationId);
+                data.put("collectionRef", n.path("collectionRef").asText());
+                data.put("mandateRef", n.path("mandateRef").asText());
+                data.put("account", n.path("accountId").asText());
+                data.put("amount", Map.of("value", n.path("amount").asText(), "currency", n.path("currency").asText("GBP")));
+                data.put("dueDate", n.path("dueDate").asText());
+                data.put("originatorName", n.path("originatorName").asText());
+                data.put("serviceUserNumber", n.path("serviceUserNumber").asText());
+                data.put("payerReference", n.path("payerReference").asText());
+                events.publish(Topics.PAYMENT_EVENTS,
+                        EventEnvelope.of("directdebit.collection_presented", "essence-adapter", correlationId, null, null,
+                                data));
             }
             default -> log.info("webhook.ignored vendor=finastra type={}", type);
         }

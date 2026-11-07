@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ApiError, auth, authHeaders, gbp, toDate } from './api';
 
 type Row = Record<string, string | null>;
-type Queue = { reviews: Row[]; flaggedPayments: Row[]; stuckSagas: Row[] };
+type Queue = { reviews: Row[]; flaggedPayments: Row[]; heldPayments?: Row[]; stuckSagas: Row[] };
 type Journey = { correlationId: string; sagas: Row[]; payments: Row[]; paymentHistory: Row[] };
 
 async function staffFetch<T>(path: string, staff: string, init: RequestInit = {}): Promise<T> {
@@ -67,6 +67,19 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
     }
   };
 
+  const decidePayment = async (paymentId: string, decision: 'APPROVE' | 'REJECT') => {
+    try {
+      await staffFetch(`/v1/staff/payments/${paymentId}/decision`, staff, {
+        method: 'POST',
+        body: JSON.stringify({ decision, note: notes[paymentId] || (decision === 'APPROVE' ? 'Checked with the customer' : 'Not confirmed by the customer') }),
+      });
+      notify(decision === 'APPROVE' ? 'Approved: the payment is on its way' : 'Rejected: the customer has been told');
+      setTimeout(refresh, 1500);
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : 'Decision failed');
+    }
+  };
+
   const reconcile = async () => {
     try {
       await staffFetch('/v1/staff/recon/runs', staff, { method: 'POST' });
@@ -86,7 +99,8 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
     }
   };
 
-  const open = (queue?.reviews.length ?? 0) + (queue?.flaggedPayments.length ?? 0) + (queue?.stuckSagas.length ?? 0);
+  const held = queue?.heldPayments ?? [];
+  const open = (queue?.reviews.length ?? 0) + (queue?.flaggedPayments.length ?? 0) + held.length + (queue?.stuckSagas.length ?? 0);
   return (
     <div className="staff-theme">
       <div className="staff-bar">
@@ -107,7 +121,7 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
     <main className="shell wide">
       <div className="tiles">
         <div className="tile"><span className="eyebrow">Open reviews</span><span className="tile-v">{queue?.reviews.length ?? 0}</span></div>
-        <div className="tile"><span className="eyebrow">Held payments</span><span className="tile-v">{queue?.flaggedPayments.length ?? 0}</span></div>
+        <div className="tile"><span className="eyebrow">Held payments</span><span className="tile-v">{(queue?.flaggedPayments.length ?? 0) + held.length}</span></div>
         <div className="tile"><span className="eyebrow">Stuck sagas</span><span className="tile-v">{queue?.stuckSagas.length ?? 0}</span></div>
         <div className="tile"><span className="eyebrow">Needs attention</span><span className={`tile-v ${open ? 'warn' : ''}`}>{open}</span></div>
       </div>
@@ -138,9 +152,38 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
         )}
       </section>
 
+      <section className="panel stack">
+        <div className="row between"><h2>High-value payments to approve</h2><span className="pill p-n">{held.length} waiting</span></div>
+        {!held.length ? <p className="muted">None. Payments of £10,000 or more wait here for approval (try a CHAPS payment in the customer app).</p> : (
+          <div className="scroll">
+            <table className="tx">
+              <tbody>
+                {held.map((p) => {
+                  const c = (() => { try { return JSON.parse(p.creditor ?? '{}'); } catch { return {}; } })();
+                  return (
+                    <tr key={p.paymentId}>
+                      <td>
+                        <div><strong>{gbp(p.amount)}</strong> to {c.name ?? '—'} · {p.paymentType === 'CHAPS' ? 'CHAPS' : p.paymentType === 'INTERNAL' ? 'same bank' : 'Faster Payment'}</div>
+                        <div className="meta">{c.sortCode ? `${c.sortCode} ${c.accountNumber} · ` : ''}held {fmt(p.createdAt)} · {p.correlationId}</div>
+                        <input className="note" id={`note-${p.paymentId}`} placeholder="Decision note" value={notes[p.paymentId!] ?? ''}
+                          onChange={(e) => setNotes({ ...notes, [p.paymentId!]: e.target.value })} />
+                      </td>
+                      <td className="actions">
+                        <button className="btn small primary" disabled={!canDecide} onClick={() => decidePayment(p.paymentId!, 'APPROVE')}>Approve</button>
+                        <button className="btn small danger" disabled={!canDecide} onClick={() => decidePayment(p.paymentId!, 'REJECT')}>Reject</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       <div className="grid2">
         <section className="panel stack">
-          <h2>Payments held for review</h2>
+          <h2>Money in held for review</h2>
           {!queue?.flaggedPayments.length ? <p className="muted">None.</p> : queue.flaggedPayments.map((p) => (
             <div key={p.paymentId} className="row between line">
               <div><div className="mono small">{p.paymentId}</div><div className="meta">{p.customerId}</div></div>
