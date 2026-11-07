@@ -269,6 +269,7 @@ curl -sf -X POST "$SIM/essence/v1/sim/inbound" -H 'Content-Type: application/jso
   -d '{"creditAccountId":"ACC-5501","amount":"1.00","debtorName":"Live Push Test","reference":"SSE"}' >/dev/null
 for _ in $(seq 1 15); do grep -q "payment.received" "$EVENTS" && break; sleep 1; done
 kill $CURL_PID 2>/dev/null || true
+wait $CURL_PID 2>/dev/null || true
 grep -q "payment.received" "$EVENTS" && pass "Pushed over Server-Sent Events: $(grep -o '"type":"payment.received"[^}]*' "$EVENTS" | head -1 | head -c 120)…" \
   || fail "No payment.received event on the stream: $(head -c 400 "$EVENTS")"
 
@@ -296,6 +297,11 @@ TOMORROW=$(TZ=Europe/London date -d '+1 day' +%F 2>/dev/null || TZ=Europe/London
 sched() { curl -sf -X POST "$BFF/v1/schedules" -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuid)" -H "$PRIYA_H" -d "$1" | field scheduleId; }
 SO=$(sched "{\"kind\":\"STANDING_ORDER\",\"frequency\":\"MONTHLY\",\"startDate\":\"$TODAY\",\"debtorAccount\":\"ACC-5501\",\"creditor\":{\"name\":\"Ravi Kumar\",\"sortCode\":\"200001\",\"accountNumber\":\"41550198\"},\"amount\":{\"value\":\"10.00\",\"currency\":\"GBP\"},\"reference\":\"Rent share\",\"copResult\":\"MATCH\"}")
 [ -n "$SO" ] && pass "Monthly standing order $SO accepted, first payment today" || fail "No scheduleId for the standing order"
+# Payments go out at 06:00 UK time. Before then today's payment is still waiting, so use the demo "pay now".
+if [ "$(TZ=Europe/London date +%H)" -lt 6 ]; then
+  sleep 3; curl -sf -X POST "$BFF/v1/schedules/$SO/run-now" -H "$PRIYA_H" >/dev/null
+  echo "  (before 06:00 UK: today's payment would wait until 06:00, so the demo 'pay now' sends it)"
+fi
 for _ in $(seq 1 25); do e=$(entry "$(curl -sf "$BFF/v1/schedules" -H "$PRIYA_H")" scheduleId "$SO" createdAt)
   echo "$e" | grep -q '"paymentsMade":1' && echo "$e" | grep -q '"lastStatus":"COMPLETED"' && break; sleep 1; done
 echo "$e" | grep -q '"paymentsMade":1' && echo "$e" | grep -q '"lastStatus":"COMPLETED"' && ! echo "$e" | grep -q "\"nextDate\":\"$TODAY\"" \
