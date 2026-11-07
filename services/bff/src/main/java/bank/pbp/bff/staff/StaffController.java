@@ -93,6 +93,32 @@ public class StaffController {
                 .uri("/v1/staff/payments/{id}/decision", paymentId).body(req).retrieve().body(JsonNode.class));
     }
 
+    /** The underwriting queue: credit card applications the decision engine referred. */
+    @GetMapping("/credit-applications")
+    public JsonNode creditReferrals() {
+        return VendorErrors.call("orchestrator", "staff.credit_referrals", () -> orchestrator.get()
+                .uri("/v1/staff/credit-applications").retrieve().body(JsonNode.class));
+    }
+
+    /** An underwriter approves (optionally with a different limit) or declines a referred application. */
+    @PostMapping("/credit-applications/{applicationId}/decision")
+    public JsonNode creditDecision(@PathVariable UUID applicationId, @Valid @RequestBody CreditDecision body,
+                                   HttpServletRequest request) {
+        Map<String, Object> req = new LinkedHashMap<>();
+        req.put("decision", body.decision());
+        req.put("creditLimit", body.creditLimit());
+        req.put("reviewer", caller.username(request));
+        req.put("note", body.note());
+        return VendorErrors.call("orchestrator", "staff.credit_decision", () -> orchestrator.post()
+                .uri("/v1/staff/credit-applications/{id}/decision", applicationId).body(req).retrieve().body(JsonNode.class));
+    }
+
+    public record CreditDecision(@jakarta.validation.constraints.NotBlank
+                                 @jakarta.validation.constraints.Pattern(regexp = "APPROVE|DECLINE") String decision,
+                                 @jakarta.validation.constraints.Pattern(regexp = "\\d{1,6}(\\.\\d{2})?") String creditLimit,
+                                 String note) {
+    }
+
     /** Links an online banking login to an existing bank customer (e.g. a customer opened in branch). */
     @PostMapping("/logins")
     public Map<String, Object> linkLogin(@Valid @RequestBody LoginLink body, HttpServletRequest request) {

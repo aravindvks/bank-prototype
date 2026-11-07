@@ -8,7 +8,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Reconciliation source (LLD section 8): card presentments captured in Essence on a business date. */
+/**
+ * Reconciliation source (LLD section 8): debit card presentments captured in Essence on a business date.
+ * Credit card presentments post to Thredd, not Essence, and are left out.
+ */
 @RestController
 public class ReconSourceController {
 
@@ -24,7 +27,7 @@ public class ReconSourceController {
                         SELECT thredd_msg_id AS "messageId", card_token AS "cardToken", amount::text AS amount,
                                essence_posting_ref AS "postingRef", correlation_id AS "correlationId"
                         FROM auth_log
-                        WHERE msg_type = 'PRESENTMENT' AND (at AT TIME ZONE 'UTC')::date = :date""")
+                        WHERE msg_type = 'PRESENTMENT' AND product = 'DEBIT' AND (at AT TIME ZONE 'UTC')::date = :date""")
                 .param("date", date)
                 .query()
                 .listOfRows();

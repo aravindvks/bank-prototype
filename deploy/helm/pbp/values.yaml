@@ -31,6 +31,10 @@ config:
   ORCHESTRATOR_URL: http://orchestrator:8081
   EHI_URL: http://ehi-responder:8083
   RECON_URL: http://recon-service:8087
+  CREDIT_ADAPTER_URL: http://credit-adapter:8089
+  CREDIT_BASE_URL: http://vendor-simulator:8090/credit/v1
+  CREDIT_MODE: simulator                        # sandbox once the bureau and decision engine are chosen
+  SIM_THREDD_WEBHOOK_URL: http://thredd-adapter:8085/hooks/thredd
   ESSENCE_BASE_URL: http://vendor-simulator:8090/essence/v1
   THREDD_BASE_URL: http://vendor-simulator:8090/thredd/v1
   ATFINITY_BASE_URL: http://vendor-simulator:8090/atfinity/v1
@@ -60,6 +64,7 @@ services:
   thredd-adapter:   { port: 8085, min: 2, max: 4,  cpu: 500m, memory: 1Gi, scaleCpu: 70 }
   atfinity-adapter: { port: 8086, min: 2, max: 4,  cpu: 500m, memory: 1Gi, scaleCpu: 70 }
   recon-service:    { port: 8087, min: 1, max: 1,  cpu: "1",  memory: 2Gi }
+  credit-adapter:   { port: 8089, min: 2, max: 4,  cpu: 500m, memory: 1Gi, scaleCpu: 70 }
   vendor-simulator: { port: 8090, min: 1, max: 2,  cpu: 500m, memory: 1Gi, enabled: true }  # dev and demo only
   web:              { port: 80,   min: 2, max: 6,  cpu: 250m, memory: 256Mi, scaleCpu: 70, probePath: / }
 

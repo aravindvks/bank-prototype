@@ -193,6 +193,8 @@ services:
       SIM_THREDD_EHI_URL: http://ehi-responder:8083/ehi/v1/messages
       # Simulated Essence accounts survive restarts; make clean deletes them with the database.
       SIM_STATE_FILE: /data/essence-state.json
+      SIM_THREDD_STATE_FILE: /data/thredd-credit-state.json
+      SIM_THREDD_WEBHOOK_URL: http://thredd-adapter:8085/hooks/thredd
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     volumes: ["simdata:/data"]
     ports: ["8090:8090"]
@@ -220,6 +222,8 @@ services:
       KEYCLOAK_JWKS: http://keycloak:8080/realms/pbp/protocol/openid-connect/certs
       EHI_URL: http://ehi-responder:8083
       RECON_URL: http://recon-service:8087
+      CREDIT_ADAPTER_URL: http://credit-adapter:8089
+      CREDIT_BASE_URL: http://vendor-simulator:8090/credit/v1
       # Local demos: Direct Debits due today are decided at once rather than at 06:00 UK time.
       DD_ENTRY_TIME: "00:00"
       # Traces to the collector (LLD section 15); every request sampled locally.
@@ -263,6 +267,16 @@ services:
       vendor-simulator: { condition: service_started }
       kafka-topics: { condition: service_completed_successfully }
     ports: ["8086:8086"]
+
+  credit-adapter:
+    profiles: ["apps"]
+    build:
+      <<: *app-build
+      args: { MODULE: services/credit-adapter, JAR: credit-adapter.jar }
+    environment: *app-env
+    depends_on:
+      vendor-simulator: { condition: service_started }
+    ports: ["8089:8089"]
 
   bff:
     profiles: ["apps"]

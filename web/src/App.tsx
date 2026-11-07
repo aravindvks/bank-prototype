@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, auth, demo, gbp, toDate, ApiError, type CardControls, type Cop, type Mandate, type Me, type Onboarding, type Payment, type Schedule } from './api';
+import { api, auth, demo, gbp, toDate, ApiError, type CardControls, type Cop, type CreditCards, type Mandate, type Me, type Onboarding, type Payment, type Schedule } from './api';
+import CreditCardView from './CreditCard';
 import Staff from './Staff';
 
 const STORAGE_KEY = 'pbp.customerId';
@@ -12,7 +13,7 @@ const ONBOARDING_STEPS = [
   ['ACTIVE', 'Account ready'],
 ] as const;
 
-type Tab = 'home' | 'payments' | 'card';
+type Tab = 'home' | 'payments' | 'card' | 'credit';
 
 function readCustomer(): string | null {
   try {
@@ -204,13 +205,16 @@ function Bank({ customerId, notify, onSignOut }: { customerId: string; notify: (
   const [payments, setPayments] = useState<Payment[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [mandates, setMandates] = useState<Mandate[]>([]);
+  const [credit, setCredit] = useState<CreditCards | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [m, p, sc, dd] = await Promise.all([api.me(customerId), api.payments(customerId),
-        api.schedules(customerId).catch(() => [] as Schedule[]), api.mandates(customerId).catch(() => [] as Mandate[])]);
+      const [m, p, sc, dd, cc] = await Promise.all([api.me(customerId), api.payments(customerId),
+        api.schedules(customerId).catch(() => [] as Schedule[]), api.mandates(customerId).catch(() => [] as Mandate[]),
+        api.creditCards(customerId).catch(() => null)]);
+      setCredit(cc);
       setMe(m);
       setPayments(p);
       setSchedules(sc);
@@ -256,7 +260,7 @@ function Bank({ customerId, notify, onSignOut }: { customerId: string; notify: (
   const frozen = me && me.status !== 'ACTIVE';
   return (
     <>
-      <DemoBar me={me} mandates={mandates} notify={notify} after={refresh} />
+      <DemoBar me={me} mandates={mandates} credit={credit} notify={notify} after={refresh} />
       <main className="shell">
         <header className="topbar">
           <div className="brand">
@@ -270,9 +274,9 @@ function Bank({ customerId, notify, onSignOut }: { customerId: string; notify: (
           </div>
         </header>
         <nav className="tabs" aria-label="Sections">
-          {(['home', 'payments', 'card'] as Tab[]).map((t) => (
+          {(['home', 'payments', 'card', 'credit'] as Tab[]).map((t) => (
             <button key={t} aria-current={tab === t ? 'page' : undefined} onClick={() => { setTab(t); setSelected(null); }}>
-              {t === 'home' ? 'Home' : t === 'payments' ? 'Payments' : 'Card'}
+              {t === 'home' ? 'Home' : t === 'payments' ? 'Payments' : t === 'card' ? 'Card' : 'Credit card'}
             </button>
           ))}
         </nav>
@@ -285,6 +289,7 @@ function Bank({ customerId, notify, onSignOut }: { customerId: string; notify: (
             : <Payments me={me} customerId={customerId} payments={payments} schedules={schedules} mandates={mandates} open={setSelected} notify={notify} after={refresh} />
         )}
         {tab === 'card' && me && <CardView me={me} customerId={customerId} notify={notify} after={refresh} />}
+        {tab === 'credit' && me && <CreditCardView me={me} customerId={customerId} credit={credit} notify={notify} after={refresh} />}
       </main>
     </>
   );
@@ -719,7 +724,8 @@ function CardView({ me, customerId, notify, after }: { me: Me; customerId: strin
 // Demo toolbar (dev and demo environments only, LLD section 16)
 // ---------------------------------------------------------------------------------------------
 
-function DemoBar({ me, mandates, notify, after }: { me: Me | null; mandates: Mandate[]; notify: (m: string) => void; after: () => void }) {
+function DemoBar({ me, mandates, credit, notify, after }: { me: Me | null; mandates: Mandate[]; credit: CreditCards | null; notify: (m: string) => void; after: () => void }) {
+  const cc = credit?.accounts.find((a) => a.status === 'ACTIVE' || a.status === 'ARREARS');
   const [merchant, setMerchant] = useState('3.50|Bean There Cafe|contactless');
   const run = async (fn: () => Promise<string>) => {
     try {
@@ -744,6 +750,14 @@ function DemoBar({ me, mandates, notify, after }: { me: Me | null; mandates: Man
           const d = await demo.tap(me!.card!.token, amount, name, channel);
           return d.decision === 'APPROVE' ? `Approved ${gbp(amount)} at ${name} (${d.latencyMs} ms)` : `Declined: ${d.reason}`;
         })}>Tap card</button>
+        <button className="bbtn" disabled={!cc} onClick={() => run(async () => {
+          const d = await demo.tap(cc!.cardToken, amount, name, channel);
+          return d.decision === 'APPROVE' ? `Credit card approved ${gbp(amount)} at ${name} (${d.latencyMs} ms)` : `Credit card declined: ${d.reason}`;
+        })}>Tap credit card</button>
+        <button className="bbtn" disabled={!cc} onClick={() => run(async () => {
+          const s = await demo.creditStatement(cc!.accountId, 60);
+          return `Thredd statement: ${gbp(s.balance)}, minimum ${gbp(s.minimumPayment)} due in 60 seconds (demo)`;
+        })}>Credit statement</button>
         <button className="bbtn" disabled={!me?.account} onClick={() => run(async () => {
           await demo.receive(me!.account!.accountId, '20.00');
           return 'Arjun sent you £20 by Faster Payment';
@@ -808,6 +822,13 @@ function describe(type: string, d: Record<string, unknown>): string | null {
     case 'schedule.created': return d.kind === 'ONE_OFF' ? `Payment to ${d.creditorName} scheduled` : `Standing order to ${d.creditorName} set up`;
     case 'schedule.cancelled': return `${d.kind === 'ONE_OFF' ? 'Scheduled payment' : 'Standing order'} to ${d.creditorName} cancelled`;
     case 'payment.rejected': return `Payment of ${gbp(amount)} rejected: ${d.reason}`;
+    case 'creditcard.offered': return `Credit card offer: ${gbp(String(d.creditLimit))} at ${d.purchaseApr}% APR`;
+    case 'creditcard.declined': return 'Your credit card application was declined';
+    case 'creditcard.referred': return 'Your credit card application is with an underwriter';
+    case 'creditcard.opened': return `Your credit card ending ${d.last4} is ready`;
+    case 'creditcard.repayment_completed': return 'Credit card repayment received';
+    case 'creditcard.statement_ready': return `New credit card statement: minimum ${gbp(String(d.minimumPayment))} due ${d.dueDate}`;
+    case 'creditcard.payment_missed': return `Credit card minimum payment missed: £${d.lateFee} fee charged`;
     case 'payment.received': return d.status === 'FLAGGED' ? `${gbp(amount)} received and held for review` : `You received ${gbp(amount)} from ${d.debtorName}${d.scheme === 'BACS' ? ' by Bacs' : ''}`;
     case 'payment.released': return `Held payment of ${gbp(amount)} released`;
     case 'customer.status_changed': return d.to === 'FROZEN' ? 'Your account is under review' : d.to === 'ACTIVE' ? 'Your account is fully available' : null;

@@ -4,6 +4,8 @@ import bank.pbp.orchestrator.cards.CardActivitiesImpl;
 import bank.pbp.orchestrator.cards.CardControlsWorkflow;
 import bank.pbp.orchestrator.compliance.ComplianceActivitiesImpl;
 import bank.pbp.orchestrator.compliance.ComplianceWorkflow;
+import bank.pbp.orchestrator.creditcards.CreditCardActivitiesImpl;
+import bank.pbp.orchestrator.creditcards.CreditCardWorkflows;
 import bank.pbp.orchestrator.directdebits.DirectDebitActivitiesImpl;
 import bank.pbp.orchestrator.directdebits.DirectDebitWorkflows;
 import bank.pbp.orchestrator.onboarding.OnboardingActivitiesImpl;
@@ -86,9 +88,10 @@ public class TemporalConfig {
                                     InboundActivitiesImpl inboundActivities,
                                     CardActivitiesImpl cardActivities,
                                     ScheduleActivitiesImpl scheduleActivities,
-                                    DirectDebitActivitiesImpl directDebitActivities) {
+                                    DirectDebitActivitiesImpl directDebitActivities,
+                                    CreditCardActivitiesImpl creditCardActivities) {
         return new TemporalWorkers(factory, paymentActivities, onboardingActivities, complianceActivities,
-                inboundActivities, cardActivities, scheduleActivities, directDebitActivities);
+                inboundActivities, cardActivities, scheduleActivities, directDebitActivities, creditCardActivities);
     }
 
     /** Starts polling after the context is ready and stops cleanly on shutdown. */
@@ -104,12 +107,14 @@ public class TemporalConfig {
         private final CardActivitiesImpl cardActivities;
         private final ScheduleActivitiesImpl scheduleActivities;
         private final DirectDebitActivitiesImpl directDebitActivities;
+        private final CreditCardActivitiesImpl creditCardActivities;
         private volatile boolean running;
 
         TemporalWorkers(WorkerFactory factory, PaymentActivitiesImpl paymentActivities,
                         OnboardingActivitiesImpl onboardingActivities, ComplianceActivitiesImpl complianceActivities,
                         InboundActivitiesImpl inboundActivities, CardActivitiesImpl cardActivities,
-                        ScheduleActivitiesImpl scheduleActivities, DirectDebitActivitiesImpl directDebitActivities) {
+                        ScheduleActivitiesImpl scheduleActivities, DirectDebitActivitiesImpl directDebitActivities,
+                        CreditCardActivitiesImpl creditCardActivities) {
             this.factory = factory;
             this.paymentActivities = paymentActivities;
             this.onboardingActivities = onboardingActivities;
@@ -118,6 +123,7 @@ public class TemporalConfig {
             this.cardActivities = cardActivities;
             this.scheduleActivities = scheduleActivities;
             this.directDebitActivities = directDebitActivities;
+            this.creditCardActivities = creditCardActivities;
         }
 
         @Override
@@ -135,8 +141,10 @@ public class TemporalConfig {
             compliance.registerWorkflowImplementationTypes(ComplianceWorkflow.Impl.class);
             compliance.registerActivitiesImplementations(complianceActivities);
             Worker cards = factory.newWorker(TaskQueues.CARDS);
-            cards.registerWorkflowImplementationTypes(CardControlsWorkflow.Impl.class);
-            cards.registerActivitiesImplementations(cardActivities);
+            cards.registerWorkflowImplementationTypes(CardControlsWorkflow.Impl.class,
+                    CreditCardWorkflows.ApplicationImpl.class, CreditCardWorkflows.RepaymentImpl.class,
+                    CreditCardWorkflows.StatementImpl.class, CreditCardWorkflows.WithdrawalImpl.class);
+            cards.registerActivitiesImplementations(cardActivities, creditCardActivities);
             factory.start();
             running = true;
             log.info("temporal.workers.started queues=[{}, {}, {}]", TaskQueues.PAYMENTS, TaskQueues.ONBOARDING,

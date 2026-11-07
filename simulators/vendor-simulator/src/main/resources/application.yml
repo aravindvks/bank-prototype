@@ -15,6 +15,9 @@ sim:
     decision-delay-ms: ${SIM_ATFINITY_DELAY_MS:3000}
   thredd:
     ehi-url: ${SIM_THREDD_EHI_URL:http://localhost:8083/ehi/v1/messages}
+    # Credit card accounts, statements and repayments (Thredd credit processing).
+    webhook-url: ${SIM_THREDD_WEBHOOK_URL:http://localhost:8085/hooks/thredd}
+    state-file: ${SIM_THREDD_STATE_FILE:}
 management:
   endpoints:
     web:

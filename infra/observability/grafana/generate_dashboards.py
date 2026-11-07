@@ -114,7 +114,7 @@ def p(q, metric, by, rng="5m", where=""):
 overview = Board("pbp-overview", "PBP · Overview",
                  "Every flow at a glance, and where to start when something looks wrong.",
                  [textbox("cid", "Correlation ID")])
-overview.stat("Services up", 'count(up{job="pbp"} == 1)', desc="Of 9: eight services and the vendor simulator")
+overview.stat("Services up", 'count(up{job="pbp"} == 1)', desc="Of 10: nine services and the vendor simulator")
 overview.stat("Alerts firing", 'count(ALERTS{alertstate="firing"}) or vector(0)', red_above=1)
 overview.stat("Payments completed (1h)", 'sum(increase(pbp_payment_transitions_total{status="COMPLETED"}[1h])) or vector(0)')
 overview.stat("Card decisions (1h)", 'sum(increase(pbp_ehi_decision_seconds_count[1h])) or vector(0)')
@@ -217,6 +217,32 @@ onb.ts("Open sagas by step", [('max without (instance, service) (pbp_sagas_open)
 onb.ts("Oldest saga at each step", [('max without (instance, service) (pbp_sagas_oldest_seconds)', "{{saga}} {{step}}")], unit="s", desc="Alert: onboarding at one step for over an hour")
 onb.ts("Atfinity adapter → Atfinity", [('sum by (uri, outcome) (rate(http_client_requests_seconds_count{application="atfinity-adapter"}[5m]))', "{{outcome}} {{uri}}")], unit="reqps")
 
+# ---------------------------------------------------------------- credit cards
+cred = Board("pbp-credit", "PBP · Credit cards",
+             "Applications and decisions, Thredd credit card spending, repayments, statements and arrears.")
+cred.stat("Applications (24h)", 'sum(increase(pbp_events_published_total{type="creditcard.applied"}[24h])) or vector(0)')
+cred.stat("Approval rate (24h)", 'sum(increase(pbp_credit_applications_decided_total{outcome="APPROVE"}[24h])) / sum(increase(pbp_credit_applications_decided_total[24h]))', unit="percentunit")
+cred.stat("Referred, waiting", 'sum(max without (instance, service) (pbp_credit_applications_open{status="REFERRED"})) or vector(0)')
+cred.stat("Offers not yet accepted", 'sum(max without (instance, service) (pbp_credit_applications_open{status="OFFERED"})) or vector(0)')
+cred.stat("Open accounts", 'sum(max without (instance, service) (pbp_credit_accounts{status=~"ACTIVE|ARREARS"})) or vector(0)')
+cred.stat("In arrears", 'sum(max without (instance, service) (pbp_credit_accounts{status="ARREARS"})) or vector(0)', red_above=1)
+cred.row("Applications")
+cred.ts("Decisions by outcome /h", [('sum by (outcome) (rate(pbp_credit_applications_decided_total[1h])) * 3600', "{{outcome}}")], stack=True)
+cred.ts("Open applications by status", [('max without (instance, service) (pbp_credit_applications_open)', "{{status}}")], stack=True)
+cred.ts("Oldest open application", [('max without (instance, service) (pbp_credit_applications_oldest_seconds)', "{{status}}")], unit="s",
+        desc="Alert: a referral waiting over 48 hours")
+cred.ts("Application events /h", [('sum by (type) (rate(pbp_events_published_total{type=~"creditcard\\\\.(applied|referred|offered|declined|expired|opened|withdrawn)"}[1h])) * 3600', "{{type}}")])
+cred.row("Using and repaying the card")
+cred.ts("Credit card authorisations by reason /min", [('sum by (decision, reason) (rate(pbp_ehi_decision_seconds_count{type!~"PRESENTMENT|REVERSAL"}[5m])) * 60', "{{decision}} {{reason}}")],
+        desc="All cards; CREDIT_LIMIT_EXCEEDED is the credit card's open-to-buy decline from Thredd")
+cred.ts("EHI → Thredd credit hold p95", [(p(0.95, "http_client_requests_seconds", "uri", where='application="ehi-responder", client_name="thredd-adapter"'), "{{uri}}")], unit="s")
+cred.ts("Repayments by outcome /h", [('sum by (status) (rate(pbp_credit_repayments_total[1h])) * 3600', "{{status}}")], stack=True)
+cred.ts("Statements by outcome /h", [('sum by (status) (rate(pbp_credit_statements_total[1h])) * 3600', "{{status}}")], stack=True,
+        desc="PAID_IN_FULL, MINIMUM_PAID or MISSED at the due time")
+cred.row("Vendors")
+cred.ts("Credit adapter → decision engine", [('sum by (uri, outcome) (rate(http_client_requests_seconds_count{application="credit-adapter"}[5m]))', "{{outcome}} {{uri}}")], unit="reqps")
+cred.ts("Thredd adapter → Thredd credit", [('sum by (uri, outcome) (rate(http_client_requests_seconds_count{application="thredd-adapter", uri=~".*credit.*"}[5m]))', "{{outcome}} {{uri}}")], unit="reqps")
+
 # ---------------------------------------------------------------- recon
 rec = Board("pbp-recon", "PBP · Reconciliation", "Card and payment movements proved against Essence postings.")
 rec.stat("Open exceptions", 'sum(pbp_recon_exceptions_open) or vector(0)', red_above=1)
@@ -258,6 +284,6 @@ plat.logs("WARN and ERROR lines", '{service=~".+", level=~"WARN|ERROR"}')
 
 if __name__ == "__main__":
     OUT.mkdir(exist_ok=True)
-    for board in (overview, pay, cards, sched, onb, rec, plat):
+    for board in (overview, pay, cards, cred, sched, onb, rec, plat):
         (OUT / f"{board.uid}.json").write_text(json.dumps(board.json(), indent=2) + "\n")
         print("wrote", board.uid, len(board.panels), "panels")

@@ -25,17 +25,22 @@ public class ThreddController {
 
     private final ThreddGateway thredd;
     private final String productId;
+    private final String creditProductId;
 
-    public ThreddController(ThreddGateway thredd, @Value("${vendor.thredd.product-id}") String productId) {
+    public ThreddController(ThreddGateway thredd, @Value("${vendor.thredd.product-id}") String productId,
+                            @Value("${vendor.thredd.credit-product-id}") String creditProductId) {
         this.thredd = thredd;
         this.productId = productId;
+        this.creditProductId = creditProductId;
     }
 
     @PostMapping("/cards")
     @ResponseStatus(HttpStatus.CREATED)
     public ThreddGateway.Card issue(@Valid @RequestBody IssueCard req,
                                     @RequestHeader("Idempotency-Key") String idempotencyKey) {
-        return thredd.issueCard(productId, req.accountRef(), req.embossName(), idempotencyKey);
+        // A credit card's accountRef is its Thredd credit account; a debit card's is the Essence account.
+        String product = "CREDIT".equals(req.product()) ? creditProductId : productId;
+        return thredd.issueCard(product, req.accountRef(), req.embossName(), idempotencyKey);
     }
 
     @PostMapping("/cards/{token}/status")
@@ -57,7 +62,8 @@ public class ThreddController {
                                   boolean online, boolean contactless, boolean atm) {
     }
 
-    public record IssueCard(@NotBlank String accountRef, @NotBlank String embossName) {
+    public record IssueCard(@NotBlank String accountRef, @NotBlank String embossName,
+                            @Pattern(regexp = "DEBIT|CREDIT") String product) {
     }
 
     public record StatusChange(@NotBlank @Pattern(regexp = "ACTIVE|BLOCKED|LOST|CLOSED") String status) {

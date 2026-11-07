@@ -123,7 +123,9 @@ public class EssenceSimulator {
                 new Account("ACC-5501", "41550123", "Priya Shah", "1000.00"),
                 new Account("ACC-5510", "41550198", "Ravi Kumar", "800.00"),
                 new Account("ACC-5530", "41550301", "Meera Nair", "300.00"),
-                new Account("ACC-7001", "71700011", "Sharma Traders Ltd", "25000.00"))) {
+                new Account("ACC-7001", "71700011", "Sharma Traders Ltd", "25000.00"),
+                // The bank's own account that credit card repayments are paid into (then posted to Thredd).
+                new Account("ACC-CARDS", "41559999", "PBP Card Repayments", "0.00"))) {
             accounts.put(a.id, a);
         }
     }

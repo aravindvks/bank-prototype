@@ -69,6 +69,9 @@ public class MeController {
                     out.put("account", account);
                 }
                 case "CARD" -> {
+                    if ("CREDIT".equals(ref.path("metadata").path("product").asText())) {
+                        break; // the credit card is shown from /v1/credit-cards
+                    }
                     Map<String, Object> card = new LinkedHashMap<>();
                     card.put("token", ref.path("externalId").asText());
                     card.put("last4", ref.path("metadata").path("last4").asText(null));

@@ -24,8 +24,8 @@ import org.springframework.stereotype.Component;
  * reads. On any change for a customer it rebuilds that customer's card keys from PostgreSQL, so
  * out-of-order events always end in the latest state.
  * <ul>
- *   <li>{@code card:{token}} → {customerId, account, cardStatus, customerStatus, dailyLimit, online,
- *       contactless, atm, v}</li>
+ *   <li>{@code card:{token}} → {customerId, account, product (DEBIT or CREDIT), cardStatus, customerStatus,
+ *       dailyLimit, online, contactless, atm, v}</li>
  *   <li>{@code cust:{customerId}:cards} → set of tokens</li>
  * </ul>
  */
@@ -67,13 +67,17 @@ public class CardCacheUpdater {
             if (!"CARD".equals(card.entityType())) {
                 continue;
             }
-            String account = refs.stream()
+            Optional<ExternalRef> parent = refs.stream()
                     .filter(r -> r.refId().equals(card.parentRefId()))
-                    .map(ExternalRef::externalId)
-                    .findFirst().orElse(null);
+                    .findFirst();
+            String account = parent.map(ExternalRef::externalId).orElse(null);
+            // A credit card hangs off its Thredd credit account; a debit card off the Essence account.
+            String product = parent.map(p -> "CREDIT_ACCOUNT".equals(p.entityType()) ? "CREDIT" : "DEBIT")
+                    .orElse("DEBIT");
             Map<String, Object> value = new LinkedHashMap<>();
             value.put("customerId", customerId.toString());
             value.put("account", account);
+            value.put("product", product);
             value.put("cardStatus", card.status());
             value.put("customerStatus", customer.get().status());
             JsonNode meta = metadata(card);

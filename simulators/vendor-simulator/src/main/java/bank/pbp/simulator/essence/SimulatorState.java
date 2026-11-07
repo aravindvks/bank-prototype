@@ -19,7 +19,7 @@ import org.slf4j.LoggerFactory;
  * Keeps the simulated core banking state in a JSON file ({@code sim.state-file}), so a restart
  * does not lose accounts that the bank's database still points at. No file configured: memory only.
  */
-final class SimulatorState {
+public final class SimulatorState {
 
     private static final Logger log = LoggerFactory.getLogger(SimulatorState.class);
 
@@ -28,7 +28,7 @@ final class SimulatorState {
     private final Supplier<Map<String, Object>> snapshot;
     private String lastWritten = "";
 
-    SimulatorState(String stateFile, ObjectMapper mapper, Supplier<Map<String, Object>> snapshot,
+    public SimulatorState(String stateFile, ObjectMapper mapper, Supplier<Map<String, Object>> snapshot,
                    Consumer<Map<String, Object>> restore) {
         this.file = stateFile == null || stateFile.isBlank() ? null : Path.of(stateFile);
         this.mapper = mapper;

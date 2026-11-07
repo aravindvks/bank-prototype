@@ -124,6 +124,34 @@ groups:
           summary: "A sanctions freeze saga has been at {{ $labels.step }} for {{ $value | humanizeDuration }}"
           dashboard: pbp-onboarding
 
+  - name: credit-cards
+    rules:
+      - alert: CreditReferralWaiting
+        expr: max(pbp_credit_applications_oldest_seconds{status="REFERRED"}) > 172800
+        labels: { severity: ticket, flow: credit-cards }
+        annotations:
+          summary: "A credit card application has waited {{ $value | humanizeDuration }} for an underwriter (expires at 5 days)"
+          dashboard: pbp-credit
+      - alert: CreditDecisionStuck
+        expr: max(pbp_credit_applications_oldest_seconds{status="RECEIVED"}) > 600
+        for: 5m
+        labels: { severity: page, flow: credit-cards }
+        annotations:
+          summary: "A credit card application has had no decision for {{ $value | humanizeDuration }} (decision engine or credit adapter)"
+          dashboard: pbp-credit
+      - alert: CreditRepaymentsFailing
+        expr: sum(increase(pbp_credit_repayments_total{status=~"FAILED|REFUNDED"}[1h])) > 3
+        labels: { severity: ticket, flow: credit-cards }
+        annotations:
+          summary: "{{ $value }} credit card repayments failed or were refunded in the last hour"
+          dashboard: pbp-credit
+      - alert: CreditArrearsRising
+        expr: sum(increase(pbp_credit_statements_total{status="MISSED"}[1d])) > 10
+        labels: { severity: ticket, flow: credit-cards }
+        annotations:
+          summary: "{{ $value }} credit card minimum payments missed today (collections and forbearance)"
+          dashboard: pbp-credit
+
   - name: reconciliation
     rules:
       - alert: ReconExceptionsOpen

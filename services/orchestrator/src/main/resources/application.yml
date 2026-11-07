@@ -51,12 +51,26 @@ pbp:
   directdebits:
     # When Direct Debits due today are paid or returned, UK time (Bacs debits at the start of the entry day).
     entry-time: "${DD_ENTRY_TIME:06:00}"
+  credit:
+    # The bank's Essence account that card repayments are paid into before they are posted to Thredd.
+    repayment-account:
+      name: PBP Card Repayments
+      sort-code: ${BANK_SORT_CODE:200001}
+      account-number: ${CREDIT_REPAYMENT_ACCOUNT:41559999}
+    # Tariff: the bank's fee for a missed minimum payment (Thredd posts it).
+    late-fee: ${CREDIT_LATE_FEE:12.00}
+    # Card spending control for new credit cards; the credit limit itself is Thredd's.
+    daily-limit: "5000.00"
+    referral-timeout: ${CREDIT_REFERRAL_TIMEOUT:PT120H}
+    offer-validity: ${CREDIT_OFFER_VALIDITY:P30D}
+    cooling-off: P14D
   adapters:
     essence-url: ${ESSENCE_ADAPTER_URL:http://localhost:8084}
   services:
     mapping-url: ${MAPPING_URL:http://localhost:8082}
     atfinity-adapter-url: ${ATFINITY_ADAPTER_URL:http://localhost:8086}
     thredd-adapter-url: ${THREDD_ADAPTER_URL:http://localhost:8085}
+    credit-adapter-url: ${CREDIT_ADAPTER_URL:http://localhost:8089}
 management:
   endpoints:
     web:

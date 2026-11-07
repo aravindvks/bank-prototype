@@ -1,0 +1,3 @@
+// credit-adapter: credit bureau and decision engine behind one stable contract (LLD section 6).
+// The lending policy is the vendor's; this adapter only translates. Vendor not chosen yet: the
+// simulator connector stands in until it is.

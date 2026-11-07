@@ -15,5 +15,6 @@ include 'services:essence-adapter'
 include 'services:thredd-adapter'
 include 'services:atfinity-adapter'
 include 'services:recon-service'
+include 'services:credit-adapter'
 
 include 'simulators:vendor-simulator'

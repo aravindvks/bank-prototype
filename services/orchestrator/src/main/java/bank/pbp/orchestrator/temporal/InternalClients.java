@@ -36,6 +36,11 @@ public class InternalClients {
         return build(b, url);
     }
 
+    @Bean
+    RestClient creditClient(RestClient.Builder b, @Value("${pbp.services.credit-adapter-url}") String url) {
+        return build(b, url);
+    }
+
     private static RestClient build(RestClient.Builder b, String url) {
         HttpClient http = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)

@@ -51,11 +51,13 @@ public class AuthorisationService {
     private final CardLookup cards;
     private final StringRedisTemplate redis;
     private final RestClient essence;
+    private final RestClient thredd;
 
     public AuthorisationService(JdbcClient jdbc, EventPublisher events, ObjectMapper mapper,
                                 ExecutorService afterResponseExecutor, CardLookup cards, StringRedisTemplate redis,
                                 RestClient.Builder builder,
                                 @Value("${pbp.ehi.essence-adapter-url}") String essenceUrl,
+                                @Value("${pbp.ehi.thredd-adapter-url}") String threddUrl,
                                 @Value("${pbp.ehi.essence-timeout-ms}") int essenceTimeoutMs) {
         this.jdbc = jdbc;
         this.events = events;
@@ -67,6 +69,8 @@ public class AuthorisationService {
         f.setConnectTimeout(Math.min(essenceTimeoutMs, 500));
         f.setReadTimeout(essenceTimeoutMs);
         this.essence = builder.clone().baseUrl(essenceUrl).requestFactory(f).build();
+        // Same time budget for a credit card's Thredd hold as for a debit card's Essence hold.
+        this.thredd = builder.clone().baseUrl(threddUrl).requestFactory(f).build();
     }
 
     public Decision handle(EhiMessage msg) {
@@ -77,7 +81,7 @@ public class AuthorisationService {
         }
         Card card = cards.find(msg.cardToken());
         Outcome outcome = switch (msg.messageType()) {
-            case "PRESENTMENT" -> presentment(msg);
+            case "PRESENTMENT" -> presentment(msg, card);
             case "REVERSAL" -> reversal(msg, card);
             default -> authorise(msg, card);
         };
@@ -115,6 +119,9 @@ public class AuthorisationService {
         if (spentToday(msg.cardToken()) + amountPence > pence(card.dailyLimit())) {
             return Outcome.decline("LIMIT_EXCEEDED");
         }
+        if (card.credit()) {
+            return creditHold(msg, card, amountPence);
+        }
         try {
             JsonNode hold = essence.post()
                     .uri("/v1/accounts/{acc}/holds", card.account())
@@ -136,10 +143,49 @@ public class AuthorisationService {
         }
     }
 
-    private Outcome presentment(EhiMessage msg) {
+    /**
+     * Credit card: open-to-buy is Thredd's rule, so the hold goes to Thredd credit processing (vendors
+     * hold the rules). Over the limit → CREDIT_LIMIT_EXCEEDED; no answer in the budget → CORE_UNAVAILABLE.
+     */
+    private Outcome creditHold(EhiMessage msg, Card card, long amountPence) {
+        try {
+            JsonNode hold = thredd.post()
+                    .uri("/v1/credit/accounts/{acc}/holds", card.account())
+                    .header("Idempotency-Key", msg.messageId())
+                    .body(Map.of("amount", msg.amount(),
+                            "reference", msg.merchant() == null ? "Card" : msg.merchant().name()))
+                    .retrieve()
+                    .body(JsonNode.class);
+            addSpend(msg.cardToken(), amountPence);
+            return new Outcome("APPROVE", null, hold == null ? null : hold.path("holdId").asText(null), null);
+        } catch (RestClientResponseException e) {
+            String body = e.getResponseBodyAsString();
+            if (body.contains("CARD-CREDIT-001")) {
+                return Outcome.decline("CREDIT_LIMIT_EXCEEDED");
+            }
+            if (body.contains("CARD-CREDIT-002")) {
+                return Outcome.decline("CARD_BLOCKED");
+            }
+            return Outcome.decline("CORE_UNAVAILABLE");
+        } catch (RestClientException e) {
+            return Outcome.decline("CORE_UNAVAILABLE");
+        }
+    }
+
+    private Outcome presentment(EhiMessage msg, Card card) {
         Optional<String> holdRef = originalHold(msg.originalMessageId());
         if (holdRef.isEmpty()) {
             return new Outcome("ACK", "NO_MATCHING_AUTHORISATION", null, null);
+        }
+        if (card.credit()) {
+            try {
+                JsonNode posted = thredd.post().uri("/v1/credit/holds/{id}/capture", holdRef.get())
+                        .body(Map.of("amount", msg.amount())).retrieve().body(JsonNode.class);
+                return new Outcome("ACK", null, holdRef.get(),
+                        posted == null ? null : posted.path("postingRef").asText(null));
+            } catch (RestClientException e) {
+                return new Outcome("ACK", "CAPTURE_PENDING", holdRef.get(), null);
+            }
         }
         try {
             JsonNode posted = essence.post().uri("/v1/holds/{id}/capture", holdRef.get())
@@ -154,7 +200,8 @@ public class AuthorisationService {
         Optional<String> holdRef = originalHold(msg.originalMessageId());
         holdRef.ifPresent(h -> {
             try {
-                essence.delete().uri("/v1/holds/{id}", h).retrieve().toBodilessEntity();
+                (card.credit() ? thredd.delete().uri("/v1/credit/holds/{id}", h)
+                        : essence.delete().uri("/v1/holds/{id}", h)).retrieve().toBodilessEntity();
                 addSpend(msg.cardToken(), -pence(msg.amount()));
             } catch (RestClientException e) {
                 log.warn("ehi.release_failed holdId={} error={}", h, e.toString());
@@ -221,9 +268,10 @@ public class AuthorisationService {
             jdbc.sql("""
                             INSERT INTO auth_log (auth_id, correlation_id, thredd_msg_id, msg_type, card_token,
                                                   customer_id, account, amount, currency, merchant, decision, reason,
-                                                  essence_hold_ref, essence_posting_ref, latency_ms)
+                                                  essence_hold_ref, essence_posting_ref, latency_ms, product)
                             VALUES (:authId, :correlationId, :msgId, :type, :token, :customerId, :account, :amount,
-                                    :currency, CAST(:merchant AS jsonb), :decision, :reason, :hold, :posting, :latency)""")
+                                    :currency, CAST(:merchant AS jsonb), :decision, :reason, :hold, :posting, :latency,
+                                    :product)""")
                     .param("authId", authId)
                     .param("correlationId", correlationId == null ? "UNKNOWN" : correlationId)
                     .param("msgId", msg.messageId())
@@ -239,6 +287,7 @@ public class AuthorisationService {
                     .param("hold", outcome.holdRef())
                     .param("posting", outcome.postingRef())
                     .param("latency", decision.latencyMs())
+                    .param("product", card.product() == null ? "DEBIT" : card.product())
                     .update();
 
             Map<String, Object> data = new LinkedHashMap<>();
@@ -246,6 +295,7 @@ public class AuthorisationService {
             data.put("messageId", msg.messageId());
             data.put("cardToken", msg.cardToken());
             data.put("account", card.account());
+            data.put("product", card.product());
             data.put("amount", Map.of("value", msg.amount(), "currency", msg.currency()));
             data.put("merchant", msg.merchant() == null ? null : msg.merchant().name());
             data.put("decision", decision.decision());

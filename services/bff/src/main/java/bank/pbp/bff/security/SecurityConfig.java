@@ -40,7 +40,7 @@ public class SecurityConfig {
                         .permitAll()
                         .requestMatchers("/actuator/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/v1/staff/reviews/**", "/v1/staff/recon/runs",
-                                "/v1/staff/payments/**")
+                                "/v1/staff/payments/**", "/v1/staff/credit-applications/**")
                         .hasRole("compliance")
                         .requestMatchers("/v1/staff/**").hasAnyRole("staff", "compliance")
                         .anyRequest().authenticated())

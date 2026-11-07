@@ -20,6 +20,7 @@ The design is in the HLD and LLD documents ("Banking Platform Prototype – High
 | 3 | OCI Terraform (network with reserved egress IP, OKE, PostgreSQL, Streaming topics, Cache, Vault, Object Storage with retention lock, OCIR, API Gateway, WAF, logging, APM), Helm chart (LLD section 13 sizing, dedicated EHI load balancer, Debezium Connect, Vault-synced secrets) and the release pipeline | **Built and validated; not yet applied** |
 | 2b | More UK payment types: Confirmation of Payee, standing orders and scheduled payments, Direct Debits (Bacs, with returns and the Direct Debit Guarantee), Bacs Direct Credits, CHAPS (hours, high-value approval, fee) | **Done** (simulator) |
 | 2c | Observability for every flow: traces across HTTP, Kafka (through the outbox) and Temporal; flow metrics and "stuck" gauges from the orchestration tables; dashboards per flow; alert rules; logs in Loki linked to traces; smoke checks that a payment and a card tap are each one trace | **Done** locally; OCI wiring written, not applied |
+| 2d | Credit cards on Thredd credit processing: application with a soft search and a decision engine (new credit adapter), underwriting referrals, offer and agreement, card issue, card taps against Thredd's open-to-buy, repayments from the current account, statements, missed payments (late fee, arrears), 14-day withdrawal | **Done** (simulator) |
 | 4 | Switch each adapter from simulator to vendor sandbox as credentials arrive | |
 
 ## Deploying to OCI (Phase 3)
@@ -50,7 +51,7 @@ Prerequisites: JDK 21, Docker Desktop with Compose v2, `make`. Gradle 8.10 must 
 
 ```bash
 make up       # builds all jars, starts infrastructure + services + vendor simulator
-make smoke    # end-to-end check of every flow, including traces, metrics and logs (27 steps)
+make smoke    # end-to-end check of every flow, including traces, metrics and logs (32 steps)
 make down     # stop (keeps data);  make clean  removes data too
 ```
 
@@ -65,6 +66,7 @@ Infrastructure only, for running services from the IDE: `make infra`.
 | Mapping service | http://localhost:8082 |
 | EHI responder | http://localhost:8083 |
 | Essence / Thredd / Atfinity adapters | :8084 / :8085 / :8086 |
+| Credit adapter (bureau and decision engine) | :8089 |
 | Recon service | http://localhost:8087 |
 | Vendor simulator | http://localhost:8090 |
 | Temporal UI | http://localhost:8233 (namespace `pbp-local`) |
@@ -98,10 +100,15 @@ Infrastructure only, for running services from the IDE: `make infra`.
 21. CHAPS: £12,000 is HELD for staff approval, appears in the Control Room, is approved, then settles with a £20 fee inside CHAPS hours, or waits QUEUED outside them
 22. Reconciliation: payments, fees, Bacs credits, Direct Debits and card settlements match Essence with zero exceptions; a rogue posting is reported
 23. Outbox relay: the Debezium connector is running after carrying every event above
-24. Tracing: Priya's £25 payment is a single trace across bff, orchestrator and essence-adapter (HTTP → outbox → Debezium → Kafka → Temporal → HTTP)
-25. Tracing: a card tap is a single trace from ehi-responder to the Essence hold
-26. Metrics, alerts and logs: Prometheus scrapes all 9 services, payment and card flow metrics are recorded, the alert rules are loaded, and Loki finds the payment's log lines by correlation ID
-27. Login: no token → 401; customer on the staff API → 403; view-only staff cannot run reconciliation; Asha's login linked at sign-up
+24. Credit card: no consent to the soft search is refused; Priya applies, the decision engine approves £1,500 at 24.9%, she accepts the agreement and her Thredd credit account and credit card open
+25. Credit card taps: £40 approved against Thredd's open-to-buy, a tap over the available credit declined CREDIT_LIMIT_EXCEEDED, the settlement posts to the Thredd balance and her Essence account is untouched
+26. Repayment: £25 from her current account to the card (Essence → the bank's card repayment account → Thredd)
+27. Statements: Thredd's statement is paid at the minimum; the next is missed, a £12 late fee is charged and the account is in ARREARS in the Control Room
+28. Underwriting: Asha's £8,000 request is referred, approved by staff at £6,000 (22.9%), opened and withdrawn within 14 days; a "Decline …" applicant is declined BUREAU_ADVERSE
+29. Tracing: Priya's £25 payment is a single trace across bff, orchestrator and essence-adapter (HTTP → outbox → Debezium → Kafka → Temporal → HTTP)
+30. Tracing: a card tap is a single trace from ehi-responder to the Essence hold
+31. Metrics, alerts and logs: Prometheus scrapes all 10 services, payment and card flow metrics are recorded, the alert rules are loaded, and Loki finds the payment's log lines by correlation ID
+32. Login: no token → 401; customer on the staff API → 403; view-only staff cannot run reconciliation; Asha's login linked at sign-up
 
 ## Observability (LLD section 15)
 
@@ -145,6 +152,8 @@ linked to the new bank customer when onboarding completes. Running the BFF from 
 | Salary by Bacs | Demo bar "Salary (Bacs)", or `POST :8090/essence/v1/sim/bacs/credits` |
 | Direct Debits | Demo bar "New Direct Debit" then "Collect Direct Debit", or `POST :8090/essence/v1/sim/dd/mandates` and `/sim/dd/collections` (optional `dueDate`; a collection waits for its due date at `DD_ENTRY_TIME`, 06:00 UK by default and 00:00 in Docker Compose so demos settle at once) |
 | Standing order now | "Pay next now" beside a standing order (demo only; signals the schedule's workflow) |
+| Credit card decision | The simulated decision engine: a name starting "Decline" → DECLINE (BUREAU_ADVERSE); UNEMPLOYED under £12,000 or an affordable limit under £250 → DECLINE (AFFORDABILITY); a limit over £5,000 or income over £150,000 → REFER to an underwriter; otherwise APPROVE at the lower of the request, 3 × monthly disposable income (income × 0.75 / 12 − housing − other credit) and £15,000. APR 24.9%, 22.9% from £5,000 |
+| Credit card statement | Demo bar "Credit statement" (due in 60 s), or `POST :8090/thredd/v1/credit/sim/statement` with `accountId` and optional `dueInSeconds`. Thredd's rules: minimum = the greater of £5 and 1% of the balance plus interest and fees; interest at APR/12 on what was left unpaid from the last statement; a missed minimum gets the bank's £12 late fee (`CREDIT_LATE_FEE`) |
 
 ## Layout
 
@@ -161,6 +170,7 @@ services/recon-service    nightly run records (matching rules in Phase 2)
 simulators/vendor-simulator  Essence, Thredd and Atfinity stand-ins; signed webhooks; X-Sim-Scenario
 web/                      customer web app (React + Vite), served by nginx in Docker
 infra/compose             Docker Compose, topic creation, service image
+services/credit-adapter   credit bureau and decision engine (vendor not chosen; simulator stand-in)
 infra/observability       OpenTelemetry Collector, Prometheus and alert rules, Tempo, Promtail, Grafana dashboards
 ```
 
@@ -200,3 +210,6 @@ that class is written. Nothing outside the adapter changes.
 - **Confirmation of Payee is checked twice**: the app checks before the customer pays, and the payment saga checks again, so a client cannot skip it by sending `copResult: MATCH`. UNAVAILABLE goes ahead (bank policy left open in the LLD).
 - `mapping_audit` is listed in the table set but had no DDL; it is defined in `services/mapping-service/src/main/resources/db/migration/V1__mapping_schema.sql`.
 - **Observability as built differs from LLD section 15** (the LLD now has an "As built" part). Metric names follow Micrometer (`pbp_*`, `http_*_requests_seconds`) instead of the planned `ehi_decision_latency_ms` and friends; logs are plain text with trace and correlation IDs rather than JSON. Every outbox table has a `traceparent` column, and the Debezium connector copies `traceparent` and `created_at` into the Kafka headers `traceparent` and `occurredAt`. The orchestration schema adds `flow_metrics_watermark` (orchestration `V5__flow_metrics_watermark.sql`), so replicas count each status change once. The LLD's log format `[COR-…]` becomes `[service,trace=…,span=…,cid=COR-…]`.
+- **Credit cards (added to the LLD in this change).** Tables `credit_application`, `credit_account`, `credit_statement`, `credit_repayment` (orchestration `V6__credit_cards.sql`); `auth_log.product` (ehi `V4__auth_log_product.sql`) so Essence reconciliation reads debit cards only; mapping entity type `CREDIT_ACCOUNT` (system THREDD), the parent of a credit card's `CARD` ref; card cache field `product`; commands `creditcard.apply|accept|repay|withdraw` on `card-commands`; events `creditcard.*` on `card-events`; new service `credit-adapter`; error codes `CARD-CREDIT-001` (over the limit), `-002` (account not open), `-003` (balance outstanding), `-005` (application not referred) and decline reason `CREDIT_LIMIT_EXCEEDED`. A credit card's daily spending control defaults to £5,000; its limit is Thredd's.
+- **Credit card reconciliation against Thredd is not built.** Credit card presentments post to Thredd, not Essence, so the CARDS run leaves them out; repayments move money inside Essence under one reference and net to zero there.
+

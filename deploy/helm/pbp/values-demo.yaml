@@ -9,5 +9,6 @@ services:
   thredd-adapter:   { port: 8085, min: 1, max: 1, cpu: 250m, memory: 768Mi }
   atfinity-adapter: { port: 8086, min: 1, max: 1, cpu: 250m, memory: 768Mi }
   recon-service:    { port: 8087, min: 1, max: 1, cpu: 250m, memory: 768Mi }
+  credit-adapter:   { port: 8089, min: 1, max: 1, cpu: 250m, memory: 768Mi }
   vendor-simulator: { port: 8090, min: 1, max: 1, cpu: 250m, memory: 768Mi, enabled: true }
   web:              { port: 80,   min: 1, max: 2, cpu: 100m, memory: 128Mi, probePath: / }

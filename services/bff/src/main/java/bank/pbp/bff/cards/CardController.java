@@ -53,7 +53,9 @@ public class CardController {
                 .uri("/v1/customers/{id}/graph", customerId).retrieve().body(JsonNode.class));
         JsonNode card = null;
         for (JsonNode ref : graph.path("refs")) {
-            if ("CARD".equals(ref.path("entityType").asText())) {
+            // The debit card; credit cards (metadata product CREDIT) are not changed from here.
+            if ("CARD".equals(ref.path("entityType").asText())
+                    && !"CREDIT".equals(ref.path("metadata").path("product").asText())) {
                 card = ref;
             }
         }

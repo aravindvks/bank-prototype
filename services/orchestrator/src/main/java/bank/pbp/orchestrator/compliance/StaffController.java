@@ -57,10 +57,24 @@ public class StaffController {
                                correlation_id AS "correlationId", created_at::text AS "createdAt"
                         FROM payment WHERE status = 'HELD' ORDER BY created_at""")
                 .query().listOfRows());
+        out.put("creditReferrals", jdbc.sql("""
+                        SELECT application_id::text AS "applicationId", customer_id::text AS "customerId", name,
+                               requested_limit::text AS "requestedLimit", offered_limit::text AS "engineLimit",
+                               annual_income::text AS "annualIncome", reasons, correlation_id AS "correlationId",
+                               created_at::text AS "createdAt"
+                        FROM credit_application WHERE status = 'REFERRED' ORDER BY created_at""")
+                .query().listOfRows());
+        out.put("creditArrears", jdbc.sql("""
+                        SELECT account_id AS "accountId", customer_id::text AS "customerId", card_last4 AS last4,
+                               credit_limit::text AS "creditLimit", arrears_count AS "arrearsCount",
+                               updated_at::text AS "updatedAt"
+                        FROM credit_account WHERE status = 'ARREARS' ORDER BY updated_at""")
+                .query().listOfRows());
         out.put("stuckSagas", jdbc.sql("""
                         SELECT saga_id::text AS "sagaId", saga_type AS type, customer_id::text AS "customerId",
                                current_step AS step, status, updated_at::text AS "updatedAt"
                         FROM saga WHERE status IN ('RUNNING','WAITING') AND saga_type <> 'FREEZE'
+                          AND NOT (saga_type = 'CREDIT_APPLICATION' AND status = 'WAITING')
                           AND updated_at < now() - interval '10 minutes'
                         ORDER BY updated_at""")
                 .query().listOfRows());

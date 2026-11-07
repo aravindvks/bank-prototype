@@ -68,7 +68,8 @@ public class CardLookup {
             return new Card(n.path("customerId").asText(null), n.path("customerStatus").asText(null),
                     n.path("cardStatus").asText(null), n.path("account").asText(null),
                     n.path("dailyLimit").asText(DEFAULT_DAILY_LIMIT), n.path("online").asBoolean(true),
-                    n.path("contactless").asBoolean(true), n.path("atm").asBoolean(true), "cache", null);
+                    n.path("contactless").asBoolean(true), n.path("atm").asBoolean(true), "cache", null,
+                    n.path("product").asText("DEBIT"));
         } catch (Exception e) {
             log.warn("cache.unavailable error={}", e.toString());
             return null;
@@ -83,9 +84,12 @@ public class CardLookup {
                     .retrieve()
                     .body(JsonNode.class);
             String account = null;
+            String product = "DEBIT";
             for (JsonNode parent : body.path("parents")) {
-                if ("ACCOUNT".equals(parent.path("entityType").asText())) {
+                String type = parent.path("entityType").asText();
+                if ("ACCOUNT".equals(type) || "CREDIT_ACCOUNT".equals(type)) {
                     account = parent.path("externalId").asText();
+                    product = "CREDIT_ACCOUNT".equals(type) ? "CREDIT" : "DEBIT";
                 }
             }
             JsonNode ref = body.path("ref");
@@ -96,7 +100,7 @@ public class CardLookup {
                     ref.path("metadata").path("online").asBoolean(true),
                     ref.path("metadata").path("contactless").asBoolean(true),
                     ref.path("metadata").path("atm").asBoolean(true), "mapping",
-                    account == null ? "CARD_NOT_FOUND" : null);
+                    account == null ? "CARD_NOT_FOUND" : null, product);
         } catch (HttpClientErrorException.NotFound e) {
             return Card.failed("CARD_NOT_FOUND");
         } catch (RuntimeException e) {
@@ -104,11 +108,16 @@ public class CardLookup {
         }
     }
 
+    /** product DEBIT (money held by Essence) or CREDIT (credit account held by Thredd). */
     public record Card(String customerId, String customerStatus, String cardStatus, String account,
                        String dailyLimit, boolean online, boolean contactless, boolean atm, String source,
-                       String error) {
+                       String error, String product) {
         static Card failed(String reason) {
-            return new Card(null, null, null, null, DEFAULT_DAILY_LIMIT, true, true, true, "none", reason);
+            return new Card(null, null, null, null, DEFAULT_DAILY_LIMIT, true, true, true, "none", reason, "DEBIT");
+        }
+
+        boolean credit() {
+            return "CREDIT".equals(product);
         }
 
         /** Whether the card's controls allow this channel (online, contactless, atm; others always allowed). */

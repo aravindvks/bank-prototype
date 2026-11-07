@@ -1,0 +1,19 @@
+server:
+  port: ${PORT:8089}
+spring:
+  application:
+    name: credit-adapter
+pbp:
+  correlation:
+    default-type: CRD
+vendor:
+  credit:
+    # simulator or sandbox; the sandbox connector is filled in once the bureau and decision engine are chosen.
+    mode: ${CREDIT_MODE:simulator}
+    base-url: ${CREDIT_BASE_URL:http://localhost:8090/credit/v1}
+    timeout-ms: 10000
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus

@@ -17,6 +17,7 @@ scrape_configs:
           - thredd-adapter:8085
           - atfinity-adapter:8086
           - recon-service:8087
+          - credit-adapter:8089
           - vendor-simulator:8090
     relabel_configs:
       - source_labels: [__address__]

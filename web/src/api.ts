@@ -22,6 +22,25 @@ export type Me = {
   };
 };
 
+export type CreditApplication = {
+  applicationId: string; status: string; requestedLimit: string; offeredLimit: string | null;
+  purchaseApr: string | null; outcome: string | null; reasons: string | null; accountId: string | null;
+  correlationId: string; createdAt: string;
+};
+export type CreditStatement = {
+  statementId: string; statementDate: string; balance: string; minimumPayment: string; interest: string;
+  dueDate: string; status: string; lateFee: string | null;
+};
+export type CreditAccount = {
+  accountId: string; cardToken: string; last4: string; creditLimit: string; purchaseApr: string; status: string;
+  arrearsCount: number; withdrawUntil: string; openedAt: string; balance?: string | null; pending?: string | null;
+  availableCredit?: string | null; liveError?: string;
+  transactions?: { ref: string; type: string; amount: string; description: string; at: string }[];
+  statements: CreditStatement[];
+  repayments: { repaymentId: string; amount: string; status: string; reason: string | null; createdAt: string }[];
+};
+export type CreditCards = { applications: CreditApplication[]; accounts: CreditAccount[] };
+
 export type Payment = {
   paymentId: string;
   correlationId: string;
@@ -122,12 +141,25 @@ export const api = {
   cancelMandate: (customerId: string, id: string) => request(`/v1/direct-debits/${id}`, { method: 'DELETE' }, customerId),
   claimRefund: (customerId: string, paymentId: string) =>
     request('/v1/direct-debits/claims', { method: 'POST', body: JSON.stringify({ paymentId }) }, customerId),
+  creditCards: (customerId: string) => request<CreditCards>('/v1/credit-cards', {}, customerId),
+  applyCreditCard: (customerId: string, body: unknown) =>
+    request<{ applicationId: string; correlationId: string }>('/v1/credit-cards/applications', { method: 'POST', body: JSON.stringify(body) }, customerId),
+  acceptCreditOffer: (customerId: string, applicationId: string) =>
+    request(`/v1/credit-cards/applications/${applicationId}/accept`, { method: 'POST', body: JSON.stringify({ agreementVersion: 'v1' }) }, customerId),
+  repayCreditCard: (customerId: string, accountId: string, debitAccount: string, amount: string) =>
+    request<{ repaymentId: string; correlationId: string }>(`/v1/credit-cards/${accountId}/repayments`, { method: 'POST', body: JSON.stringify({ debitAccount, amount }) }, customerId),
+  withdrawCreditCard: (customerId: string, accountId: string) =>
+    request(`/v1/credit-cards/${accountId}/withdraw`, { method: 'POST' }, customerId),
   cardControls: (customerId: string, body: CardControls) =>
     request<{ commandId: string; correlationId: string }>('/v1/cards/controls', { method: 'PUT', body: JSON.stringify(body) }, customerId),
 };
 
 // Demo toolbar: plays the card network, other banks and Atfinity through the vendor simulator.
 export const demo = {
+  // Thredd's statement cycle for a credit card account; dueInSeconds brings the due time forward for demos.
+  creditStatement: (accountId: string, dueInSeconds?: number) =>
+    request<{ statementId: string; balance: string; minimumPayment: string; dueDate: string }>(
+      '/sim/thredd/v1/credit/sim/statement', { method: 'POST', body: JSON.stringify(dueInSeconds ? { accountId, dueInSeconds } : { accountId }) }),
   tap: (token: string, amount: string, merchant: string, channel: string) =>
     request<{ messageId: string; decision: string; reason: string | null; latencyMs: number }>(
       '/sim/thredd/v1/sim/card-tap', { method: 'POST', body: JSON.stringify({ token, amount, merchant, channel }) }),

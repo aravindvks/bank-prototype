@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ApiError, auth, authHeaders, gbp, toDate } from './api';
 
 type Row = Record<string, string | null>;
-type Queue = { reviews: Row[]; flaggedPayments: Row[]; heldPayments?: Row[]; stuckSagas: Row[] };
+type Queue = { reviews: Row[]; flaggedPayments: Row[]; heldPayments?: Row[]; creditReferrals?: Row[]; creditArrears?: Row[]; stuckSagas: Row[] };
 type Journey = { correlationId: string; sagas: Row[]; payments: Row[]; paymentHistory: Row[] };
 
 async function staffFetch<T>(path: string, staff: string, init: RequestInit = {}): Promise<T> {
@@ -80,6 +80,21 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
     }
   };
 
+  const [limits, setLimits] = useState<Record<string, string>>({});
+  const decideCredit = async (applicationId: string, decision: 'APPROVE' | 'DECLINE', engineLimit?: string) => {
+    try {
+      await staffFetch(`/v1/staff/credit-applications/${applicationId}/decision`, staff, {
+        method: 'POST',
+        body: JSON.stringify({ decision, creditLimit: decision === 'APPROVE' ? (limits[applicationId] || engineLimit || undefined) : undefined,
+          note: notes[applicationId] || (decision === 'APPROVE' ? 'Income and affordability checked' : 'Not affordable on the evidence') }),
+      });
+      notify(decision === 'APPROVE' ? 'Approved: the customer gets the offer' : 'Declined: the customer has been told');
+      setTimeout(refresh, 1500);
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : 'Decision failed');
+    }
+  };
+
   const reconcile = async () => {
     try {
       await staffFetch('/v1/staff/recon/runs', staff, { method: 'POST' });
@@ -100,7 +115,9 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
   };
 
   const held = queue?.heldPayments ?? [];
-  const open = (queue?.reviews.length ?? 0) + (queue?.flaggedPayments.length ?? 0) + held.length + (queue?.stuckSagas.length ?? 0);
+  const referrals = queue?.creditReferrals ?? [];
+  const arrears = queue?.creditArrears ?? [];
+  const open = (queue?.reviews.length ?? 0) + (queue?.flaggedPayments.length ?? 0) + held.length + referrals.length + (queue?.stuckSagas.length ?? 0);
   return (
     <div className="staff-theme">
       <div className="staff-bar">
@@ -179,6 +196,45 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
             </table>
           </div>
         )}
+      </section>
+
+      <section className="panel stack">
+        <div className="row between"><h2>Credit card applications to underwrite</h2><span className="pill p-n">{referrals.length} waiting</span></div>
+        {!referrals.length ? <p className="muted">None. The decision engine refers applications over £5,000 (apply in the customer app's Credit card tab).</p> : (
+          <div className="scroll">
+            <table className="tx">
+              <tbody>
+                {referrals.map((a) => (
+                  <tr key={a.applicationId}>
+                    <td>
+                      <div><strong>{a.name ?? '—'}</strong> asks for {gbp(a.requestedLimit)} · income {gbp(a.annualIncome)} · engine limit {gbp(a.engineLimit)}</div>
+                      <div className="meta">{a.reasons ?? ''} · received {fmt(a.createdAt)} · {a.correlationId}</div>
+                      <div className="row">
+                        <input className="note" placeholder={`Limit (default ${a.engineLimit ?? '—'})`} value={limits[a.applicationId!] ?? ''}
+                          onChange={(e) => setLimits({ ...limits, [a.applicationId!]: e.target.value })} aria-label="Approved limit" />
+                        <input className="note grow" placeholder="Decision note" value={notes[a.applicationId!] ?? ''}
+                          onChange={(e) => setNotes({ ...notes, [a.applicationId!]: e.target.value })} />
+                      </div>
+                    </td>
+                    <td className="actions">
+                      <button className="btn small primary" disabled={!canDecide} onClick={() => decideCredit(a.applicationId!, 'APPROVE', a.engineLimit ?? undefined)}>Approve</button>
+                      <button className="btn small danger" disabled={!canDecide} onClick={() => decideCredit(a.applicationId!, 'DECLINE')}>Decline</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {arrears.length > 0 && <>
+          <h2>Credit cards in arrears</h2>
+          {arrears.map((a) => (
+            <div key={a.accountId} className="row between line">
+              <div><div className="mono small">{a.accountId} · •••• {a.last4}</div><div className="meta">{a.customerId} · limit {gbp(a.creditLimit)}</div></div>
+              <span className="pill p-bad">{a.arrearsCount} missed</span>
+            </div>
+          ))}
+        </>}
       </section>
 
       <div className="grid2">

@@ -46,7 +46,7 @@
     {
       "type": "stat",
       "title": "Services up",
-      "description": "Of 9: eight services and the vendor simulator",
+      "description": "Of 10: nine services and the vendor simulator",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

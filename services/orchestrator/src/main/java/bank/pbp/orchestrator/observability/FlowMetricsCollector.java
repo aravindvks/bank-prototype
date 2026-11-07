@@ -55,6 +55,9 @@ public class FlowMetricsCollector {
     private final MultiGauge schedulesActive;
     private final MultiGauge schedulesOverdue;
     private final MultiGauge mandates;
+    private final MultiGauge creditApplications;
+    private final MultiGauge creditApplicationsOldest;
+    private final MultiGauge creditAccounts;
 
     public FlowMetricsCollector(JdbcClient jdbc, TransactionTemplate tx, MeterRegistry registry) {
         this.jdbc = jdbc;
@@ -71,6 +74,11 @@ public class FlowMetricsCollector {
                 .description("Active schedules whose payment is due and not yet made (06:30 UK grace)")
                 .register(registry);
         this.mandates = MultiGauge.builder("pbp.dd.mandates").register(registry);
+        this.creditApplications = MultiGauge.builder("pbp.credit.applications.open")
+                .description("Credit card applications not yet decided or accepted").register(registry);
+        this.creditApplicationsOldest = MultiGauge.builder("pbp.credit.applications.oldest").baseUnit("seconds")
+                .register(registry);
+        this.creditAccounts = MultiGauge.builder("pbp.credit.accounts").register(registry);
     }
 
     @Scheduled(initialDelayString = "${pbp.observability.collect-initial-ms:10000}",
@@ -166,6 +174,14 @@ public class FlowMetricsCollector {
                                    AND (now() AT TIME ZONE 'Europe/London')::time > time '06:30'))
                         GROUP BY 1""")
                 .query((rs, n) -> new Object[] {rs.getString(1), rs.getLong(2)}).list(), 1, "kind"), true);
+        List<Object[]> applications = jdbc.sql("""
+                        SELECT status, count(*), max(extract(epoch FROM now() - updated_at))
+                        FROM credit_application WHERE status IN ('RECEIVED', 'REFERRED', 'OFFERED') GROUP BY 1""")
+                .query((rs, n) -> new Object[] {rs.getString(1), rs.getLong(2), rs.getDouble(3)}).list();
+        creditApplications.register(rows(applications, 1, "status"), true);
+        creditApplicationsOldest.register(rows(applications, 2, "status"), true);
+        creditAccounts.register(rows(jdbc.sql("SELECT status, count(*) FROM credit_account GROUP BY 1")
+                .query((rs, n) -> new Object[] {rs.getString(1), rs.getLong(2)}).list(), 1, "status"), true);
         mandates.register(rows(jdbc.sql("SELECT status, count(*) FROM dd_mandate GROUP BY 1")
                 .query((rs, n) -> new Object[] {rs.getString(1), rs.getLong(2)}).list(), 1, "status"), true);
     }

@@ -22,6 +22,10 @@ vendor:
     timeout-ms: 10000
     # Product and programme IDs come from configuration, never code (LLD section 6).
     product-id: ${THREDD_PRODUCT_ID:PBP-UK-DEBIT-01}
+    credit-product-id: ${THREDD_CREDIT_PRODUCT_ID:PBP-UK-CREDIT-01}
+webhook:
+  secret: ${WEBHOOK_SECRET:local-dev-secret}
+  replay-window-seconds: 300
 management:
   endpoints:
     web:

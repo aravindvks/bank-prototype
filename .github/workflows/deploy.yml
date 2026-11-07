@@ -36,7 +36,7 @@ jobs:
         run: |
           for m in services/bff services/orchestrator services/mapping-service services/ehi-responder \
                    services/essence-adapter services/thredd-adapter services/atfinity-adapter \
-                   services/recon-service simulators/vendor-simulator; do
+                   services/credit-adapter services/recon-service simulators/vendor-simulator; do
             name=$(basename "$m")
             docker build -f infra/compose/Dockerfile --build-arg MODULE="$m" --build-arg JAR="$name.jar" \
               -t "$REGISTRY/$name:$TAG" .

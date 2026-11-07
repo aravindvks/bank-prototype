@@ -23,6 +23,19 @@ public final class VendorErrors {
                 throw new PbpException("VND-UNAVAIL-001", 503, "Vendor unavailable",
                         vendor + " returned " + status + " for " + operation, true);
             }
+            // Thredd credit processing: the credit account's rules, in our vocabulary (LLD section 14).
+            if (body.contains("CARD-CREDIT-001")) {
+                throw new PbpException("CARD-CREDIT-001", 422, "Over credit limit",
+                        "Available credit is below the amount");
+            }
+            if (body.contains("CARD-CREDIT-002")) {
+                throw new PbpException("CARD-CREDIT-002", 422, "Credit account not open",
+                        "The credit card account is not open for spending");
+            }
+            if (body.contains("CARD-CREDIT-003")) {
+                throw new PbpException("CARD-CREDIT-003", 409, "Balance outstanding",
+                        "The credit card account can only close with a zero balance");
+            }
             if (body.contains("INSUFFICIENT_FUNDS")) {
                 throw new PbpException("PAY-FUNDS-001", 422, "Insufficient funds",
                         "Available balance is below the amount");
