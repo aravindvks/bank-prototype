@@ -132,5 +132,8 @@ jobs:
             echo "---- errors ----"
             grep -E "ERROR|Exception|Caused by|FAIL|refused|denied" stack.log | grep -v "WARN" | head -80
           } > summary.txt
+          # Service errors first, one annotation each, so they are not cut off by the long summary.
+          grep -E "Exception|Caused by| ERROR " stack.log | grep -v WARN | sed 's/\x1b\[[0-9;]*m//g' | awk '!seen[$0]++' \
+            | head -8 | cut -c1-700 | sed 's/^/::error title=Service error::/' || true
           msg=$(sed -e 's/%/%25/g' summary.txt | cut -c1-400 | awk '{printf "%s%%0A", $0}')
           echo "::error title=End-to-end failed::${msg}"
