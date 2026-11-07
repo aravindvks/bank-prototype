@@ -19,17 +19,7 @@
   --r-panel: 8px; --r-ctl: 6px;
   color-scheme: light;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --navy: #8fb4e3; --navy-2: #a9c6ec; --navy-soft: #1b2635;
-    --bg: #12171e; --surface: #181f28; --surface-2: #1e2631; --line: #2b3543; --line-2: #3a4656;
-    --fg: #e5e9ee; --muted: #9aa5b2;
-    --accent: #8fb4e3; --accent-ink: #0f1a27;
-    --ok: #5cc493; --ok-soft: #16301f; --bad: #f2877c; --bad-soft: #3a1a17; --warn: #f2c66a; --warn-soft: #33290f;
-    --header: #181f28; --header-fg: #e5e9ee; --header-muted: #9aa5b2; --header-line: #2b3543;
-    color-scheme: dark;
-  }
-}
+/* Always the light, white theme, whatever the device's dark mode setting. */
 
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 var(--f-body); -webkit-font-smoothing: antialiased; }
