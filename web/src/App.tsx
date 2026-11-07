@@ -109,10 +109,12 @@ function Welcome({ onReady, notify }: { onReady: (id: string) => void; notify: (
   if (onboardingId) return <OnboardingProgress id={onboardingId} onReady={onReady} onRestart={() => setOnboardingId(null)} />;
 
   return (
+    <div className="welcome">
     <main className="shell narrow">
-      <header className="brand">
-        <h1>Banking Platform Prototype</h1>
-        <p className="muted">UK current account · runs on the real backend with vendor simulators · <a href="/staff">Staff portal</a></p>
+      <header className="stack">
+        <span className="wordmark">Banking Platform Prototype</span>
+        <h1 className="intro">A UK current account, opened in a minute.</h1>
+        <p className="intro-sub">Identity checked by Atfinity, account by Finastra, card by Thredd: all running on simulators. Staff work in the <a href="/staff">Control Room</a>.</p>
       </header>
       <form className="panel stack" onSubmit={submit}>
         <h2>Open an account</h2>
@@ -143,6 +145,7 @@ function Welcome({ onReady, notify }: { onReady: (id: string) => void; notify: (
       </form>
       )}
     </main>
+    </div>
   );
 }
 
@@ -261,25 +264,34 @@ function Bank({ customerId, notify, onSignOut }: { customerId: string; notify: (
   return (
     <>
       <DemoBar me={me} mandates={mandates} credit={credit} notify={notify} after={refresh} />
+      <header className="hero">
+        <div className="hero-inner">
+          <div className="hero-top">
+            <span className="wordmark">Banking Platform Prototype</span>
+            <span className="spacer" />
+            <span className="hero-who">{me?.account?.name ?? 'Loading…'}</span>
+            <span className={`live ${live ? 'on' : ''}`} title={live ? 'Updates arrive as they happen' : 'Reconnecting'}>{live ? 'Live' : 'Offline'}</span>
+            <a className="hero-link" href="/staff">Staff portal</a>
+            <button className="hero-link" onClick={onSignOut}>Sign out</button>
+          </div>
+          <div className="hero-balance">
+            <Amount value={me?.account?.available} />
+            <p className="hero-sub">
+              Available in your {me?.customerType === 'BUSINESS' ? 'business ' : ''}current account
+              {me?.account?.sortCode ? <> · <strong className="num">{fmtSort(me.account.sortCode)}</strong> <strong className="num">{me.account.accountNumber}</strong></> : null}
+              {me?.account?.ledger && me.account.ledger !== me.account.available ? ` · ${gbp(me.account.ledger)} including pending card payments` : ''}
+            </p>
+          </div>
+          <nav className="tabs" aria-label="Sections">
+            {(['home', 'payments', 'card', 'credit'] as Tab[]).map((t) => (
+              <button key={t} aria-current={tab === t ? 'page' : undefined} onClick={() => { setTab(t); setSelected(null); }}>
+                {t === 'home' ? 'Overview' : t === 'payments' ? 'Payments' : t === 'card' ? 'Debit card' : 'Credit card'}
+              </button>
+            ))}
+          </nav>
+        </div>
+      </header>
       <main className="shell">
-        <header className="topbar">
-          <div className="brand">
-            <h1>Banking Platform Prototype</h1>
-            <p className="muted">{me?.account?.name ?? 'Loading…'}{auth.enabled ? ` · signed in as ${auth.username}` : ''} · <span className="mono small">{customerId}</span>
-              {' '}<span className={`pill ${live ? 'p-ok' : 'p-n'}`}>{live ? 'live' : 'offline'}</span></p>
-          </div>
-          <div className="row">
-            <a className="btn small" href="/staff">Staff portal</a>
-            <button className="btn small" onClick={onSignOut}>Sign out</button>
-          </div>
-        </header>
-        <nav className="tabs" aria-label="Sections">
-          {(['home', 'payments', 'card', 'credit'] as Tab[]).map((t) => (
-            <button key={t} aria-current={tab === t ? 'page' : undefined} onClick={() => { setTab(t); setSelected(null); }}>
-              {t === 'home' ? 'Home' : t === 'payments' ? 'Payments' : t === 'card' ? 'Card' : 'Credit card'}
-            </button>
-          ))}
-        </nav>
         {error && <p className="alert bad">{error}</p>}
         {frozen && <p className="alert bad"><strong>Account under review.</strong> Card payments and transfers are paused while the bank completes a compliance check.</p>}
         {tab === 'home' && me && <Home me={me} payments={payments} open={(id) => { setTab('payments'); setSelected(id); }} />}
@@ -295,16 +307,24 @@ function Bank({ customerId, notify, onSignOut }: { customerId: string; notify: (
   );
 }
 
+/** The balance in the account band: pounds large, pence small. */
+function Amount({ value }: { value: string | null | undefined }) {
+  if (value == null) return <div className="hero-amount">—</div>;
+  const n = Number(value);
+  const [pounds, pence] = Math.abs(n).toFixed(2).split('.');
+  return (
+    <div className="hero-amount" aria-label={gbp(value)}>
+      {n < 0 ? '−' : ''}£{Number(pounds).toLocaleString('en-GB')}<span className="pence">.{pence}</span>
+    </div>
+  );
+}
+
 function Home({ me, payments, open }: { me: Me; payments: Payment[]; open: (id: string) => void }) {
   return (
     <>
       <section className="panel stack">
-        <p className="eyebrow">{me.customerType === 'BUSINESS' ? 'Business current account' : 'Current account'}</p>
-        <div className="balance num">{gbp(me.account?.available)}</div>
-        <p className="muted">
-          Available{me.account?.ledger && me.account.ledger !== me.account.available ? ` · ${gbp(me.account.ledger)} including pending card payments` : ''}
-          {me.account?.balanceError ? ` · ${me.account.balanceError}` : ''}
-        </p>
+        <h2>Your account</h2>
+        {me.account?.balanceError && <p className="alert warn">{me.account.balanceError}</p>}
         <dl className="kv">
           <div><dt>Sort code</dt><dd className="num">{fmtSort(me.account?.sortCode)}</dd></div>
           <div><dt>Account number</dt><dd className="num">{me.account?.accountNumber ?? '—'}</dd></div>

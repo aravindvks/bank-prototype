@@ -117,7 +117,7 @@ function Account({ me, customerId, account, notify, after }: {
   return (
     <div className="grid2">
       <section className="panel stack">
-        <div className={`plastic ${account.status !== 'ACTIVE' ? 'frozen' : ''}`} style={{ background: account.status === 'ACTIVE' ? 'linear-gradient(135deg, #3a2a6e, #14324a)' : undefined }}>
+        <div className={`plastic credit ${account.status !== 'ACTIVE' ? 'frozen' : ''}`}>
           <div className="row between"><strong>Credit</strong><span className="mono">{account.status === 'ARREARS' ? 'IN ARREARS' : 'VISA'}</span></div>
           <div className="pan">•••• •••• •••• {account.last4}</div>
           <div className="row between small"><span>{me.account?.name}</span><span className="mono">{account.cardToken}</span></div>

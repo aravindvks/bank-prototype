@@ -132,7 +132,7 @@ export default function Staff({ notify }: { notify: (m: string) => void }) {
               : <input id="staff" value={staff} onChange={(e) => setStaff(e.target.value)} />}
           </label>
           {auth.enabled && <button className="staff-link linklike" onClick={auth.logout}>Sign out</button>}
-          <a className="staff-link" href="/">Customer app →</a>
+          <a className="staff-link" href="/">Customer app</a>
         </div>
       </div>
     <main className="shell wide">

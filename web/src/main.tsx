@@ -3,6 +3,10 @@ import { createRoot } from 'react-dom/client';
 import Keycloak from 'keycloak-js';
 import App from './App';
 import { auth } from './api';
+// Fonts are bundled with the app (no third-party font requests from a banking page).
+import '@fontsource-variable/bricolage-grotesque/opsz.css';
+import '@fontsource-variable/instrument-sans';
+import '@fontsource/ibm-plex-mono/400.css';
 import './styles.css';
 
 const keycloakUrl = import.meta.env.VITE_KEYCLOAK_URL as string | undefined;
