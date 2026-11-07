@@ -126,7 +126,7 @@ linked to the new bank customer when onboarding completes. Running the BFF from 
 | High-value approval | Pay £10,000 or more; approve or reject it in the staff portal |
 | CHAPS hours | Choose CHAPS: 06:00–17:30 UK time on working days, otherwise QUEUED until the next opening (`CHAPS_OPENS`, `CHAPS_CUT_OFF`, `CHAPS_HOLIDAYS`) |
 | Salary by Bacs | Demo bar "Salary (Bacs)", or `POST :8090/essence/v1/sim/bacs/credits` |
-| Direct Debits | Demo bar "New Direct Debit" then "Collect Direct Debit", or `POST :8090/essence/v1/sim/dd/mandates` and `/sim/dd/collections` (optional `dueDate`; a collection waits for its due date) |
+| Direct Debits | Demo bar "New Direct Debit" then "Collect Direct Debit", or `POST :8090/essence/v1/sim/dd/mandates` and `/sim/dd/collections` (optional `dueDate`; a collection waits for its due date at `DD_ENTRY_TIME`, 06:00 UK by default and 00:00 in Docker Compose so demos settle at once) |
 | Standing order now | "Pay next now" beside a standing order (demo only; signals the schedule's workflow) |
 
 ## Layout

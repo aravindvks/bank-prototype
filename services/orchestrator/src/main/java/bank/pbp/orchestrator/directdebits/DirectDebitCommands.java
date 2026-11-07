@@ -35,10 +35,14 @@ public class DirectDebitCommands {
 
     private final WorkflowClient temporal;
     private final JdbcClient jdbc;
+    private final java.time.LocalTime entryTime;
 
-    public DirectDebitCommands(WorkflowClient temporal, JdbcClient jdbc) {
+    public DirectDebitCommands(WorkflowClient temporal, JdbcClient jdbc,
+                               @org.springframework.beans.factory.annotation.Value("${pbp.directdebits.entry-time:06:00}")
+                               String entryTime) {
         this.temporal = temporal;
         this.jdbc = jdbc;
+        this.entryTime = java.time.LocalTime.parse(entryTime);
     }
 
     /** directdebit.mandate_received (essence-adapter). */
@@ -58,7 +62,9 @@ public class DirectDebitCommands {
         Collection c = new Collection(Ids.uuidV7().toString(), str(d.get("collectionRef")), str(d.get("mandateRef")),
                 e.correlationId(), str(d.get("account")), str(amount.get("value")), str(amount.get("currency")),
                 str(d.get("dueDate")), str(d.get("originatorName")), str(d.get("serviceUserNumber")),
-                str(d.get("payerReference")), Instant.now().truncatedTo(ChronoUnit.MICROS).toString());
+                str(d.get("payerReference")), Instant.now().truncatedTo(ChronoUnit.MICROS).toString(),
+                java.time.LocalDate.parse(str(d.get("dueDate"))).atTime(entryTime)
+                        .atZone(java.time.ZoneId.of("Europe/London")).toInstant().toString());
         start(CollectionWorkflow.class, "ddcol-" + c.collectionRef(), wf -> WorkflowClient.start(wf::run, c));
     }
 

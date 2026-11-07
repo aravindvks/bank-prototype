@@ -157,6 +157,8 @@ services:
       KEYCLOAK_JWKS: http://keycloak:8080/realms/pbp/protocol/openid-connect/certs
       EHI_URL: http://ehi-responder:8083
       RECON_URL: http://recon-service:8087
+      # Local demos: Direct Debits due today are decided at once rather than at 06:00 UK time.
+      DD_ENTRY_TIME: "00:00"
     depends_on: &app-deps
       postgres: { condition: service_healthy }
       kafka-topics: { condition: service_completed_successfully }

@@ -48,6 +48,9 @@ pbp:
       cut-off: "${CHAPS_CUT_OFF:17:30}"
       # England and Wales bank holidays, comma-separated ISO dates.
       holidays: "${CHAPS_HOLIDAYS:2026-12-25,2026-12-28,2027-01-01,2027-03-26,2027-03-29,2027-05-03,2027-05-31,2027-08-30,2027-12-27,2027-12-28}"
+  directdebits:
+    # When Direct Debits due today are paid or returned, UK time (Bacs debits at the start of the entry day).
+    entry-time: "${DD_ENTRY_TIME:06:00}"
   adapters:
     essence-url: ${ESSENCE_ADAPTER_URL:http://localhost:8084}
   services:

@@ -55,7 +55,7 @@ public final class DirectDebitWorkflows {
 
     public record Collection(String paymentId, String collectionRef, String mandateRef, String correlationId,
                              String account, String amount, String currency, String dueDate, String originatorName,
-                             String serviceUserNumber, String payerReference, String receivedAt) {
+                             String serviceUserNumber, String payerReference, String receivedAt, String dueAt) {
     }
 
     public record Claim(String paymentId, String customerId, String correlationId, String reasonCode) {
@@ -156,7 +156,9 @@ public final class DirectDebitWorkflows {
         @Override
         public String run(Collection c) {
             Standing presented = activities.present(c);
-            long due = LocalDate.parse(c.dueDate()).atTime(ENTRY_TIME).atZone(UK).toInstant().toEpochMilli();
+            // dueAt: the due date at the bank's Bacs processing time (pbp.directdebits.entry-time).
+            long due = c.dueAt() != null ? java.time.Instant.parse(c.dueAt()).toEpochMilli()
+                    : LocalDate.parse(c.dueDate()).atTime(ENTRY_TIME).atZone(UK).toInstant().toEpochMilli();
             long wait = due - Workflow.currentTimeMillis();
             if (wait > 0) {
                 Workflow.sleep(Duration.ofMillis(wait));

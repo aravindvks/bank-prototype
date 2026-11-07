@@ -353,7 +353,8 @@ MID=$(echo "$dd" | grep -o "\"mandateId\":\"[^\"]*\",\"mandateRef\":\"$MREF\"" |
 collect() { curl -sf -X POST "$SIM/essence/v1/sim/dd/collections" -H 'Content-Type: application/json' \
   -d "{\"mandateRef\":\"$MREF\",\"amount\":\"$1\"}" | field collectionRef; }
 dd_row() { for _ in $(seq 1 20); do list=$(curl -sf "$BFF/v1/payments" -H "$PRIYA_H")
-  echo "$list" | grep -q "\"paymentType\":\"DIRECT_DEBIT\",\"status\":\"$2\",\"finastraRef\":\"$1\"" && break; sleep 1; done; row_id "$list" "$1"; }
+  echo "$list" | grep -q "\"paymentType\":\"DIRECT_DEBIT\",\"status\":\"$2\",\"finastraRef\":\"$1\"" && { row_id "$list" "$1"; return; }
+  sleep 1; done; }  # empty when the collection never reached that status
 C1=$(collect 30.00); DD1=$(dd_row "$C1" COMPLETED)
 [ -n "$DD1" ] && pass "£30 collection $C1 paid on its due date (payment $DD1)" || fail "Collection $C1 not paid: $(curl -sf "$BFF/v1/payments" -H "$PRIYA_H" | head -c 400)"
 # More than Priya has (balances build up over runs, so it is worked out from her balance now).
