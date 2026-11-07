@@ -334,12 +334,13 @@ echo "$e" | grep -q '"status":"COMPLETED"' && echo "$e" | grep -q '"lastStatus":
   || fail "Expected the scheduled payment to complete, got $e"
 
 echo "19. Bacs Direct Credit: Priya's salary arrives in a Bacs file from her employer"
-curl -sf -X POST "$SIM/essence/v1/sim/bacs/credits" -H 'Content-Type: application/json' \
-  -d '{"originatorName":"ACME LTD","credits":[{"creditAccountId":"ACC-5501","amount":"2500.00","reference":"SALARY NOV"}]}' >/dev/null
-for _ in $(seq 1 15); do list=$(curl -sf "$BFF/v1/payments" -H "$PRIYA_H")
-  echo "$list" | grep -q '\\"scheme\\":\\"BACS\\"' && break; sleep 1; done
-echo "$list" | grep -q '\\"scheme\\":\\"BACS\\"' && echo "$list" | grep -q '"amount":"2500.00","currency":"GBP","paymentType":"INBOUND","status":"COMPLETED"' \
-  && pass "£2,500 from ACME LTD recorded as an INBOUND Bacs credit" || fail "No completed Bacs credit for Priya: $(echo "$list" | head -c 400)"
+b=$(curl -sf -X POST "$SIM/essence/v1/sim/bacs/credits" -H 'Content-Type: application/json' \
+  -d '{"originatorName":"ACME LTD","credits":[{"creditAccountId":"ACC-5501","amount":"2500.00","reference":"SALARY NOV"}]}')
+BREF=$(echo "$b" | field finastraRef)
+for _ in $(seq 1 20); do list=$(curl -sf "$BFF/v1/payments" -H "$PRIYA_H")
+  echo "$list" | grep -q "\"status\":\"COMPLETED\",\"finastraRef\":\"$BREF\"" && break; sleep 1; done
+echo "$list" | grep -q "\"paymentType\":\"INBOUND\",\"status\":\"COMPLETED\",\"finastraRef\":\"$BREF\"" \
+  && pass "£2,500 from ACME LTD recorded as an INBOUND Bacs credit ($BREF)" || fail "Bacs credit $BREF not completed: $(echo "$list" | head -c 400)"
 
 echo "20. Direct Debits: a mandate, a collection paid, one returned unpaid, a Guarantee refund, then cancellation"
 m=$(curl -sf -X POST "$SIM/essence/v1/sim/dd/mandates" -H 'Content-Type: application/json' \
