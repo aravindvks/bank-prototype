@@ -28,7 +28,7 @@ curl -sf -X PUT "$URL/connectors/pbp-outbox/config" -H 'Content-Type: applicatio
   "transforms.outbox.table.field.event.payload": "payload",
   "transforms.outbox.route.by.field": "topic",
   "transforms.outbox.route.topic.replacement": "${routedByValue}",
-  "transforms.outbox.table.fields.additional.placement": "event_type:header:type,correlation_id:header:correlationId,event_id:header:eventId",
+  "transforms.outbox.table.fields.additional.placement": "event_type:header:type,correlation_id:header:correlationId,event_id:header:eventId,traceparent:header:traceparent,created_at:header:occurredAt",
   "transforms.outbox.table.expand.json.payload": "false"
 }'
 echo

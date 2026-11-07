@@ -161,6 +161,9 @@ public class PaymentActivitiesImpl implements PaymentActivities {
                     .param("createdAt", OffsetDateTime.parse(c.initiatedAt()))
                     .update();
             log.info("payment.cop paymentId={} result={}", c.paymentId(), result);
+            io.micrometer.core.instrument.Metrics.counter("pbp.cop.results", "result",
+                    bank.pbp.common.observability.FlowMetrics.label(result),
+                    "type", bank.pbp.common.observability.FlowMetrics.label(c.paymentType())).increment();
             return new CopCheck(result, r == null ? null : (String) r.get("matchedName"),
                     r == null ? null : (String) r.get("reasonCode"));
         });

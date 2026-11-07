@@ -19,6 +19,7 @@ The design is in the HLD and LLD documents ("Banking Platform Prototype – High
 | 2 | Staff portal (review queue, clear or confirm, journey search), card controls, live push (Server-Sent Events), reconciliation matching, transactional outbox relayed by Debezium, login with roles (Keycloak standing in for Identity Domains) | **Done** |
 | 3 | OCI Terraform (network with reserved egress IP, OKE, PostgreSQL, Streaming topics, Cache, Vault, Object Storage with retention lock, OCIR, API Gateway, WAF, logging, APM), Helm chart (LLD section 13 sizing, dedicated EHI load balancer, Debezium Connect, Vault-synced secrets) and the release pipeline | **Built and validated; not yet applied** |
 | 2b | More UK payment types: Confirmation of Payee, standing orders and scheduled payments, Direct Debits (Bacs, with returns and the Direct Debit Guarantee), Bacs Direct Credits, CHAPS (hours, high-value approval, fee) | **Done** (simulator) |
+| 2c | Observability for every flow: traces across HTTP, Kafka (through the outbox) and Temporal; flow metrics and "stuck" gauges from the orchestration tables; dashboards per flow; alert rules; logs in Loki linked to traces; smoke checks that a payment and a card tap are each one trace | **Done** locally; OCI wiring written, not applied |
 | 4 | Switch each adapter from simulator to vendor sandbox as credentials arrive | |
 
 ## Deploying to OCI (Phase 3)
@@ -49,7 +50,7 @@ Prerequisites: JDK 21, Docker Desktop with Compose v2, `make`. Gradle 8.10 must 
 
 ```bash
 make up       # builds all jars, starts infrastructure + services + vendor simulator
-make smoke    # end-to-end check of the whole journey (19 steps)
+make smoke    # end-to-end check of every flow, including traces, metrics and logs (27 steps)
 make down     # stop (keeps data);  make clean  removes data too
 ```
 
@@ -67,6 +68,8 @@ Infrastructure only, for running services from the IDE: `make infra`.
 | Recon service | http://localhost:8087 |
 | Vendor simulator | http://localhost:8090 |
 | Temporal UI | http://localhost:8233 (namespace `pbp-local`) |
+| **Grafana** | **http://localhost:3001** (dashboards open without login; admin/admin to edit) |
+| Prometheus · Tempo · Loki | http://localhost:9090 · :3200 · :3100 |
 | PostgreSQL | localhost:5432, db `pbp`, user/password `pbp` |
 | Kafka | localhost:9092 |
 
@@ -95,7 +98,21 @@ Infrastructure only, for running services from the IDE: `make infra`.
 21. CHAPS: £12,000 is HELD for staff approval, appears in the Control Room, is approved, then settles with a £20 fee inside CHAPS hours, or waits QUEUED outside them
 22. Reconciliation: payments, fees, Bacs credits, Direct Debits and card settlements match Essence with zero exceptions; a rogue posting is reported
 23. Outbox relay: the Debezium connector is running after carrying every event above
-24. Login: no token → 401; customer on the staff API → 403; view-only staff cannot run reconciliation; Asha's login linked at sign-up
+24. Tracing: Priya's £25 payment is a single trace across bff, orchestrator and essence-adapter (HTTP → outbox → Debezium → Kafka → Temporal → HTTP)
+25. Tracing: a card tap is a single trace from ehi-responder to the Essence hold
+26. Metrics, alerts and logs: Prometheus scrapes all 9 services, payment and card flow metrics are recorded, the alert rules are loaded, and Loki finds the payment's log lines by correlation ID
+27. Login: no token → 401; customer on the staff API → 403; view-only staff cannot run reconciliation; Asha's login linked at sign-up
+
+## Observability (LLD section 17)
+
+One standard, set once in `libs/platform-common`, so no service wires it itself:
+
+- **Traces**: OpenTelemetry through Micrometer, exported over OTLP to the collector when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Trace context crosses every hop: HTTP (RestClient), Kafka (producer and listener observations; for the outbox, a `traceparent` column that Debezium copies into a header) and Temporal (OpenTracing interceptors over an OpenTelemetry shim). Every span carries `pbp.correlation_id`, so a correlation ID finds its trace: in Grafana, *Explore → Tempo* `{ span.pbp.correlation_id = "COR-PAY-…" }`.
+- **Logs**: `INFO [bff,trace=…,span=…,cid=COR-…] …`. Promtail ships them to Loki; each line links to its trace.
+- **Metrics** on `/actuator/prometheus`. The flow metrics are counted from the orchestration tables by `FlowMetricsCollector`, so a payment that silently stops moving still shows: `pbp_payment_transitions_total`, `pbp_payment_completion_seconds`, `pbp_payments_open` and `pbp_payments_oldest_seconds` (time in the current status), `pbp_sagas_*`, `pbp_schedules_*`, `pbp_dd_mandates`. Plus `pbp_ehi_decision_seconds` (the EHI time budget), `pbp_cop_results_total`, `pbp_events_published_total` / `consumed_total`, `pbp_events_delivery_seconds` (outbox to listener), `pbp_recon_*`, HTTP server and vendor-call timers, Temporal SDK metrics and Kafka consumer lag. Labels are codes and statuses only: never customer, payment or correlation IDs.
+- **Dashboards** (folder *Banking Platform Prototype*): Overview, Payments, Cards and EHI, Standing orders and Direct Debits, Onboarding and KYC, Reconciliation, Platform. Generated by `make dashboards` from `infra/observability/grafana/generate_dashboards.py`; edit that, not the JSON.
+- **Alerts** in `infra/observability/prometheus/alerts.yml` (shown in Grafana under Alerting): EHI over budget or CORE_UNAVAILABLE, payment failure rate, FPS stuck > 5 min, CHAPS stuck or still QUEUED in CHAPS hours, HELD > 48 h, CoP UNAVAILABLE rising, standing order missed, Direct Debit not settled, onboarding stuck, recon exceptions or not run, service down, 5xx, vendor errors, slow event delivery, consumer lag, dead letters, Temporal activity failures. No Alertmanager locally; on OCI, route them from kube-prometheus-stack.
+- **OCI**: the same stack from upstream charts (kube-prometheus-stack, Tempo, Loki, OpenTelemetry Collector). `deploy/helm/pbp` adds the PodMonitor, PrometheusRule and dashboard ConfigMaps when `observability.enabled=true`; traces are sampled at 10% (`PBP_TRACE_SAMPLING`). The collector can also export to OCI APM.
 
 ## Sign-in (local)
 
@@ -144,11 +161,12 @@ services/recon-service    nightly run records (matching rules in Phase 2)
 simulators/vendor-simulator  Essence, Thredd and Atfinity stand-ins; signed webhooks; X-Sim-Scenario
 web/                      customer web app (React + Vite), served by nginx in Docker
 infra/compose             Docker Compose, topic creation, service image
+infra/observability       OpenTelemetry Collector, Prometheus and alert rules, Tempo, Promtail, Grafana dashboards
 ```
 
 ## Conventions (LLD section 1)
 
-- **Correlation ID** `COR-<ONB|PAY|CRD|TXN|CUS|REC>-<12 base32>` on every call (`X-Correlation-ID`), Kafka record (`correlationId` header) and log line (`[COR-…]`). The first service of a journey creates it.
+- **Correlation ID** `COR-<ONB|PAY|CRD|TXN|CUS|REC>-<12 base32>` on every call (`X-Correlation-ID`), Kafka record (`correlationId` header) and log line (`cid=COR-…`, next to the trace and span IDs). The first service of a journey creates it.
 - **IDs** UUID v7. **Money** decimal strings with currency, never floating point. **Time** UTC ISO 8601.
 - **Errors** RFC 9457 problem+json with `code`, `correlationId`, `retryable`; codes from LLD section 14.
 - **Events** one envelope on every topic, keyed by customer ID.
@@ -181,3 +199,4 @@ that class is written. Nothing outside the adapter changes.
 - **The orchestrator chooses FPS or CHAPS**, not Finastra: the customer picks CHAPS for large same-day payments, and the bank's CHAPS hours, fee and limits are its tariff. The LLD said Finastra routes to the scheme.
 - **Confirmation of Payee is checked twice**: the app checks before the customer pays, and the payment saga checks again, so a client cannot skip it by sending `copResult: MATCH`. UNAVAILABLE goes ahead (bank policy left open in the LLD).
 - `mapping_audit` is listed in the table set but had no DDL; it is defined in `services/mapping-service/src/main/resources/db/migration/V1__mapping_schema.sql`.
+- **Observability (not in the LLD; section 17 added).** Every outbox table has a `traceparent` column, and the Debezium connector copies `traceparent` and `created_at` into the Kafka headers `traceparent` and `occurredAt`. The orchestration schema adds `flow_metrics_watermark` (orchestration `V5__flow_metrics_watermark.sql`), so replicas count each status change once. The LLD's log format `[COR-…]` becomes `[service,trace=…,span=…,cid=COR-…]`.

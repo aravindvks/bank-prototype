@@ -7,6 +7,8 @@ import bank.pbp.common.events.CorrelationRecordInterceptor;
 import bank.pbp.common.events.EventPublisher;
 import bank.pbp.common.events.OutboxWriter;
 import bank.pbp.common.ids.JourneyType;
+import bank.pbp.common.observability.CorrelationObservationFilter;
+import bank.pbp.common.observability.TraceHeaders;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -65,8 +67,36 @@ public class PlatformAutoConfiguration {
         @Bean
         @ConditionalOnMissingBean
         @ConditionalOnBean(type = "org.springframework.jdbc.core.JdbcTemplate")
-        OutboxWriter outboxWriter(org.springframework.jdbc.core.JdbcTemplate jdbc) {
-            return new OutboxWriter(jdbc);
+        OutboxWriter outboxWriter(org.springframework.jdbc.core.JdbcTemplate jdbc,
+                                  org.springframework.beans.factory.ObjectProvider<TraceHeaders> trace) {
+            return new OutboxWriter(jdbc, trace.getIfAvailable());
+        }
+    }
+
+    /** Observability (LLD section 17): correlation ID on spans, traceparent for the outbox. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "io.micrometer.observation.ObservationFilter")
+    static class ObservabilityWiring {
+
+        @Bean
+        @ConditionalOnMissingBean
+        CorrelationObservationFilter correlationObservationFilter() {
+            return new CorrelationObservationFilter();
+        }
+
+        @Configuration(proxyBeanMethods = false)
+        @ConditionalOnClass(name = "io.micrometer.tracing.Tracer")
+        static class Tracing {
+
+            @Bean
+            @ConditionalOnMissingBean
+            TraceHeaders traceHeaders(org.springframework.beans.factory.ObjectProvider<io.micrometer.tracing.Tracer> tracer,
+                                      org.springframework.beans.factory.ObjectProvider<io.micrometer.tracing.propagation.Propagator> propagator) {
+                io.micrometer.tracing.Tracer t = tracer.getIfAvailable(() -> io.micrometer.tracing.Tracer.NOOP);
+                io.micrometer.tracing.propagation.Propagator p =
+                        propagator.getIfAvailable(() -> io.micrometer.tracing.propagation.Propagator.NOOP);
+                return new TraceHeaders(t, p);
+            }
         }
     }
 

@@ -1,5 +1,7 @@
 package bank.pbp.ehi;
 
+import io.micrometer.context.ContextExecutorService;
+import io.micrometer.context.ContextSnapshotFactory;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.springframework.boot.SpringApplication;
@@ -13,9 +15,13 @@ public class EhiResponderApplication {
         SpringApplication.run(EhiResponderApplication.class, args);
     }
 
-    /** Logging and publishing run here, after the response is sent, off the EHI response path. */
+    /**
+     * Logging and publishing run here, after the response is sent, off the EHI response path. Wrapped so
+     * the request's trace carries over, and the card event joins the authorisation's trace (LLD section 17).
+     */
     @Bean(destroyMethod = "shutdown")
     ExecutorService afterResponseExecutor() {
-        return Executors.newFixedThreadPool(4);
+        ContextSnapshotFactory snapshots = ContextSnapshotFactory.builder().build();
+        return ContextExecutorService.wrap(Executors.newFixedThreadPool(4), snapshots::captureAll);
     }
 }

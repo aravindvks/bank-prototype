@@ -7,3 +7,4 @@ out/
 .DS_Store
 *.log
 !gradle/wrapper/gradle-wrapper.jar
+deploy/helm/pbp/files/

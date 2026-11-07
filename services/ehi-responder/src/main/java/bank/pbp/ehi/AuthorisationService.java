@@ -1,6 +1,9 @@
 package bank.pbp.ehi;
 
 import bank.pbp.common.correlation.Correlation;
+import bank.pbp.common.observability.FlowMetrics;
+import io.micrometer.core.instrument.Metrics;
+import io.micrometer.core.instrument.Timer;
 import bank.pbp.common.events.EventEnvelope;
 import bank.pbp.common.events.EventPublisher;
 import bank.pbp.common.events.Topics;
@@ -18,6 +21,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -81,6 +85,14 @@ public class AuthorisationService {
         Decision decision = new Decision(msg.messageId(), outcome.decision(), outcome.reason(), latencyMs);
         String correlationId = Correlation.current().orElse(null);
         afterResponse.submit(() -> record(msg, card, outcome, decision, correlationId));
+        // The EHI time budget (LLD section 17): p99 of this timer against pbp.ehi.essence-timeout-ms.
+        Timer.builder("pbp.ehi.decision")
+                .tag("type", FlowMetrics.label(msg.messageType()))
+                .tag("decision", FlowMetrics.label(decision.decision()))
+                .tag("reason", FlowMetrics.label(decision.reason()))
+                .tag("source", FlowMetrics.label(card.source()))
+                .register(Metrics.globalRegistry)
+                .record(System.nanoTime() - start, TimeUnit.NANOSECONDS);
         log.info("ehi.decision type={} messageId={} decision={} reason={} source={} latencyMs={}",
                 msg.messageType(), msg.messageId(), decision.decision(), decision.reason(), card.source(), latencyMs);
         return decision;

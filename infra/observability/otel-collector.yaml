@@ -1,0 +1,28 @@
+# OpenTelemetry Collector (LLD section 17). Every service sends OTLP here; this is the one place that
+# decides where traces go. Locally: Tempo. On OCI: Tempo in the cluster, and OCI APM if enabled
+# (see deploy/helm/pbp/values.yaml, observability.ociApm).
+receivers:
+  otlp:
+    protocols:
+      grpc: { endpoint: 0.0.0.0:4317 }
+      http: { endpoint: 0.0.0.0:4318 }
+
+processors:
+  batch: {}
+  # Belt and braces for "tokens and last 4 only": drop any attribute that could carry a full card number.
+  attributes/scrub:
+    actions:
+      - { key: card.pan, action: delete }
+      - { key: pan, action: delete }
+
+exporters:
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls: { insecure: true }
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [attributes/scrub, batch]
+      exporters: [otlp/tempo]

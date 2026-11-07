@@ -7,3 +7,4 @@ data:
   {{ $k }}: {{ $v | quote }}
   {{- end }}
   TEMPORAL_NAMESPACE: {{ printf "pbp-%s" .Values.env | quote }}
+  PBP_ENV: {{ .Values.env | quote }}

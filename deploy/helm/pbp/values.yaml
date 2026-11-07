@@ -38,6 +38,9 @@ config:
   SIM_ATFINITY_WEBHOOK_URL: http://atfinity-adapter:8086/hooks/atfinity
   SIM_THREDD_EHI_URL: http://ehi-responder:8083/ehi/v1/messages
   JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+  # Observability (LLD section 17): traces to the in-cluster OpenTelemetry Collector, 10% sampled.
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability:4318"
+  PBP_TRACE_SAMPLING: "0.1"
 
 # Keys expected in the Secret: DB_USER, DB_PASSWORD, WEBHOOK_SECRET, SPRING_KAFKA_PROPERTIES_SASL_JAAS_CONFIG
 secretName: pbp-secrets
@@ -75,3 +78,13 @@ webInternalLoadBalancer: true
 connect:
   enabled: true
   image: quay.io/debezium/connect:2.7.3.Final
+
+# Observability (LLD section 17). Needs kube-prometheus-stack (with the Grafana dashboard sidecar), Tempo,
+# Loki and the OpenTelemetry Collector in the "observability" namespace; the collector exports to Tempo and,
+# when ociApm.enabled, also to OCI APM (endpoint and data key from terraform outputs apm_*).
+observability:
+  enabled: false
+  prometheusRelease: kube-prometheus-stack
+  ociApm:
+    enabled: false
+

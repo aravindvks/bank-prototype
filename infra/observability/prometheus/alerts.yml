@@ -1,0 +1,196 @@
+# Alert rules for every flow (LLD section 17). Grafana shows them under Alerting; on OCI the same file
+# is loaded by the in-cluster Prometheus. severity: page = act now, ticket = next working day.
+# Thresholds are prototype starting points; the ones marked DECISION need the business to confirm.
+groups:
+  - name: cards
+    rules:
+      - alert: EhiOverTimeBudget
+        expr: |
+          histogram_quantile(0.99, sum by (le) (rate(pbp_ehi_decision_seconds_bucket{type!~"PRESENTMENT|REVERSAL"}[5m]))) > 2
+        for: 5m
+        labels: { severity: page, flow: card-authorisation }
+        annotations:
+          summary: "Card authorisation p99 is {{ $value | humanizeDuration }}, over the 2 s budget (DECISION: Thredd's real limit)"
+          dashboard: pbp-cards
+      - alert: EhiCoreUnavailable
+        expr: sum(rate(pbp_ehi_decision_seconds_count{reason="CORE_UNAVAILABLE"}[5m])) > 0
+        for: 2m
+        labels: { severity: page, flow: card-authorisation }
+        annotations:
+          summary: "Card taps are declining with CORE_UNAVAILABLE: Essence or the card lookup is not answering"
+          dashboard: pbp-cards
+      - alert: EhiDeclineRateHigh
+        expr: |
+          sum(rate(pbp_ehi_decision_seconds_count{decision="DECLINE"}[15m]))
+            / sum(rate(pbp_ehi_decision_seconds_count{type!~"PRESENTMENT|REVERSAL"}[15m])) > 0.3
+        for: 10m
+        labels: { severity: ticket, flow: card-authorisation }
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of card authorisations declined in 15 minutes"
+          dashboard: pbp-cards
+
+  - name: payments
+    rules:
+      - alert: PaymentFailureRateHigh
+        expr: |
+          sum by (type) (rate(pbp_payment_transitions_total{status=~"FAILED|REJECTED"}[15m]))
+            / sum by (type) (rate(pbp_payment_transitions_total{status="INITIATED"}[15m])) > 0.1
+        for: 10m
+        labels: { severity: page, flow: payments }
+        annotations:
+          summary: "{{ $labels.type }} payments: {{ $value | humanizePercentage }} failing or rejected"
+          dashboard: pbp-payments
+      - alert: FasterPaymentStuck
+        expr: max by (type, status) (pbp_payments_oldest_seconds{type=~"FPS|INTERNAL", status=~"INITIATED|CHECKS_PASSED|SUBMITTED|ACCEPTED"}) > 300
+        for: 2m
+        labels: { severity: page, flow: payments }
+        annotations:
+          summary: "A {{ $labels.type }} payment has been {{ $labels.status }} for {{ $value | humanizeDuration }}"
+          dashboard: pbp-payments
+      - alert: ChapsPaymentStuck
+        expr: max by (status) (pbp_payments_oldest_seconds{type="CHAPS", status=~"INITIATED|CHECKS_PASSED|SUBMITTED|ACCEPTED"}) > 3600
+        for: 5m
+        labels: { severity: page, flow: chaps }
+        annotations:
+          summary: "A CHAPS payment has been {{ $labels.status }} for {{ $value | humanizeDuration }}"
+          dashboard: pbp-payments
+      - alert: ChapsQueuedWhileWindowOpen
+        # 07:00-16:00 UTC on weekdays sits inside 06:00-17:30 UK in both GMT and BST. Bank holidays are not known here.
+        expr: |
+          max(pbp_payments_oldest_seconds{type="CHAPS", status="QUEUED"}) > 900
+            and on () (day_of_week() >= 1 and day_of_week() <= 5)
+            and on () (hour() >= 7 and hour() < 16)
+        for: 15m
+        labels: { severity: page, flow: chaps }
+        annotations:
+          summary: "CHAPS payments are still QUEUED although the CHAPS window is open"
+          dashboard: pbp-payments
+      - alert: PaymentHeldForReview
+        expr: max(pbp_payments_oldest_seconds{status="HELD"}) > 172800
+        labels: { severity: ticket, flow: payments }
+        annotations:
+          summary: "A payment over the review threshold has waited {{ $value | humanizeDuration }}; it is rejected at 72 h"
+          dashboard: pbp-payments
+      - alert: InboundPaymentFlagged
+        expr: max(pbp_payments_oldest_seconds{type="INBOUND", status="FLAGGED"}) > 14400
+        labels: { severity: ticket, flow: inbound }
+        annotations:
+          summary: "An inbound payment has been FLAGGED for {{ $value | humanizeDuration }}"
+          dashboard: pbp-payments
+      - alert: CopUnavailableRising
+        expr: |
+          sum(rate(pbp_cop_results_total{result="UNAVAILABLE"}[30m])) / sum(rate(pbp_cop_results_total[30m])) > 0.2
+        for: 15m
+        labels: { severity: ticket, flow: confirmation-of-payee }
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of Confirmation of Payee checks are UNAVAILABLE (DECISION: pay or block)"
+          dashboard: pbp-payments
+
+  - name: schedules-and-direct-debits
+    rules:
+      - alert: StandingOrderMissed
+        expr: max by (kind) (pbp_schedules_overdue) > 0
+        for: 15m
+        labels: { severity: page, flow: standing-orders }
+        annotations:
+          summary: "{{ $value }} {{ $labels.kind }} schedule(s) due today have not paid (06:30 UK grace)"
+          dashboard: pbp-schedules
+      - alert: DirectDebitNotSettled
+        expr: max(pbp_payments_oldest_seconds{type="DIRECT_DEBIT", status="PRESENTED"}) > 345600
+        labels: { severity: ticket, flow: direct-debits }
+        annotations:
+          summary: "A Direct Debit collection has been PRESENTED for {{ $value | humanizeDuration }}, past the Bacs cycle"
+          dashboard: pbp-schedules
+      - alert: DirectDebitReturnsHigh
+        expr: sum(increase(pbp_payment_transitions_total{type="DIRECT_DEBIT", status="RETURNED"}[1d])) > 10
+        labels: { severity: ticket, flow: direct-debits }
+        annotations:
+          summary: "{{ $value }} Direct Debits returned (ARUDD) in the last day"
+          dashboard: pbp-schedules
+
+  - name: onboarding
+    rules:
+      - alert: OnboardingStuck
+        expr: max by (step) (pbp_sagas_oldest_seconds{saga="ONBOARDING"}) > 3600
+        for: 5m
+        labels: { severity: ticket, flow: onboarding }
+        annotations:
+          summary: "An onboarding has been at {{ $labels.step }} for {{ $value | humanizeDuration }}"
+          dashboard: pbp-onboarding
+      - alert: ComplianceSagaStuck
+        expr: max by (step) (pbp_sagas_oldest_seconds{saga="FREEZE"}) > 14400
+        labels: { severity: ticket, flow: compliance }
+        annotations:
+          summary: "A sanctions freeze saga has been at {{ $labels.step }} for {{ $value | humanizeDuration }}"
+          dashboard: pbp-onboarding
+
+  - name: reconciliation
+    rules:
+      - alert: ReconExceptionsOpen
+        expr: sum by (type) (pbp_recon_exceptions_open) > 0
+        for: 30m
+        labels: { severity: ticket, flow: reconciliation }
+        annotations:
+          summary: "{{ $value }} open {{ $labels.type }} reconciliation exception(s)"
+          dashboard: pbp-recon
+      - alert: ReconNotRun
+        expr: max by (source) (pbp_recon_last_run_age_seconds) > 93600
+        labels: { severity: ticket, flow: reconciliation }
+        annotations:
+          summary: "No {{ $labels.source }} reconciliation for {{ $value | humanizeDuration }}"
+          dashboard: pbp-recon
+
+  - name: platform
+    rules:
+      - alert: ServiceDown
+        expr: up{job="pbp"} == 0
+        for: 2m
+        labels: { severity: page, flow: platform }
+        annotations:
+          summary: "{{ $labels.service }} is not answering Prometheus"
+          dashboard: pbp-platform
+      - alert: ServiceErrorRateHigh
+        expr: |
+          sum by (application) (rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+            / sum by (application) (rate(http_server_requests_seconds_count[5m])) > 0.05
+        for: 5m
+        labels: { severity: page, flow: platform }
+        annotations:
+          summary: "{{ $labels.application }}: {{ $value | humanizePercentage }} of requests failing with 5xx"
+          dashboard: pbp-platform
+      - alert: VendorErrorRateHigh
+        expr: |
+          sum by (application, client_name) (rate(http_client_requests_seconds_count{application=~".+-adapter", outcome=~"SERVER_ERROR|UNKNOWN"}[5m]))
+            / sum by (application, client_name) (rate(http_client_requests_seconds_count{application=~".+-adapter"}[5m])) > 0.05
+        for: 5m
+        labels: { severity: page, flow: vendors }
+        annotations:
+          summary: "{{ $labels.application }} calls to {{ $labels.client_name }}: {{ $value | humanizePercentage }} failing"
+          dashboard: pbp-platform
+      - alert: EventDeliverySlow
+        expr: histogram_quantile(0.95, sum by (le, topic) (rate(pbp_events_delivery_seconds_bucket[5m]))) > 10
+        for: 5m
+        labels: { severity: page, flow: events }
+        annotations:
+          summary: "Events on {{ $labels.topic }} take {{ $value | humanizeDuration }} from outbox to listener (Debezium or Kafka lag)"
+          dashboard: pbp-platform
+      - alert: ConsumerLagHigh
+        expr: sum by (consumergroup, topic) (kafka_consumergroup_lag) > 100
+        for: 10m
+        labels: { severity: page, flow: events }
+        annotations:
+          summary: "{{ $labels.consumergroup }} is {{ $value }} messages behind on {{ $labels.topic }}"
+          dashboard: pbp-platform
+      - alert: DeadLetterReceived
+        expr: sum by (topic) (increase(kafka_topic_partition_current_offset{topic=~".+\\.DLT"}[15m])) > 0
+        labels: { severity: ticket, flow: events }
+        annotations:
+          summary: "Messages arrived on {{ $labels.topic }}; replay is not built yet"
+          dashboard: pbp-platform
+      - alert: TemporalActivityFailures
+        expr: sum(rate(temporal_activity_execution_failed_total[5m])) > 0.1
+        for: 10m
+        labels: { severity: ticket, flow: sagas }
+        annotations:
+          summary: "Temporal activities failing at {{ $value }}/s (retries hide most of these from customers)"
+          dashboard: pbp-platform

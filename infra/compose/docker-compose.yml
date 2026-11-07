@@ -109,6 +109,7 @@ services:
       POSTGRES_PWD: pbp
       POSTGRES_SEEDS: postgres
       DEFAULT_NAMESPACE: pbp-local
+      PROMETHEUS_ENDPOINT: 0.0.0.0:8000
     ports: ["7233:7233"]
 
   temporal-ui:
@@ -117,6 +118,67 @@ services:
     environment:
       TEMPORAL_ADDRESS: temporal:7233
     ports: ["8233:8080"]
+
+  # ---------- Observability (LLD section 17): Grafana on http://localhost:3001 ----------
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.111.0
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ../observability/otel-collector.yaml:/etc/otel/config.yaml:ro
+    depends_on: [tempo]
+    ports: ["4317:4317", "4318:4318"]
+
+  tempo:
+    image: grafana/tempo:2.6.0
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ../observability/tempo.yaml:/etc/tempo.yaml:ro
+    ports: ["3200:3200"]
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --enable-feature=exemplar-storage
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ../observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports: ["9090:9090"]
+
+  loki:
+    image: grafana/loki:3.2.0
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    ports: ["3100:3100"]
+
+  promtail:
+    image: grafana/promtail:3.2.0
+    command: ["-config.file=/etc/promtail/config.yaml"]
+    volumes:
+      - ../observability/promtail.yaml:/etc/promtail/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on: [loki]
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.8.0
+    command: ["--kafka.server=kafka:29092"]
+    depends_on:
+      kafka: { condition: service_healthy }
+    restart: on-failure
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/pbp-overview.json
+    volumes:
+      - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on: [prometheus, tempo, loki]
+    ports: ["3001:3000"]
 
   # ---------- Application services (profile "apps") ----------
   vendor-simulator:
@@ -131,6 +193,7 @@ services:
       SIM_THREDD_EHI_URL: http://ehi-responder:8083/ehi/v1/messages
       # Simulated Essence accounts survive restarts; make clean deletes them with the database.
       SIM_STATE_FILE: /data/essence-state.json
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     volumes: ["simdata:/data"]
     ports: ["8090:8090"]
 
@@ -159,6 +222,9 @@ services:
       RECON_URL: http://recon-service:8087
       # Local demos: Direct Debits due today are decided at once rather than at 06:00 UK time.
       DD_ENTRY_TIME: "00:00"
+      # Traces to the collector (LLD section 17); every request sampled locally.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      PBP_ENV: local
     depends_on: &app-deps
       postgres: { condition: service_healthy }
       kafka-topics: { condition: service_completed_successfully }

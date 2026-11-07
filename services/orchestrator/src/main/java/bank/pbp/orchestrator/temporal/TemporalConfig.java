@@ -14,15 +14,26 @@ import bank.pbp.orchestrator.payments.PaymentActivitiesImpl;
 import bank.pbp.orchestrator.payments.PaymentWorkflowImpl;
 import bank.pbp.orchestrator.schedules.ScheduleActivitiesImpl;
 import bank.pbp.orchestrator.schedules.ScheduleWorkflow;
+import com.uber.m3.tally.RootScopeBuilder;
+import com.uber.m3.tally.Scope;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.opentracingshim.OpenTracingShim;
 import io.temporal.client.WorkflowClient;
 import io.temporal.client.WorkflowClientOptions;
+import io.temporal.common.reporter.MicrometerClientStatsReporter;
+import io.temporal.opentracing.OpenTracingClientInterceptor;
+import io.temporal.opentracing.OpenTracingOptions;
+import io.temporal.opentracing.OpenTracingWorkerInterceptor;
 import io.temporal.serviceclient.WorkflowServiceStubs;
 import io.temporal.serviceclient.WorkflowServiceStubsOptions;
 import io.temporal.worker.Worker;
 import io.temporal.worker.WorkerFactory;
+import io.temporal.worker.WorkerFactoryOptions;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.Bean;
@@ -32,20 +43,40 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class TemporalConfig {
 
+    /**
+     * Temporal SDK metrics (task latency, failures, polls) on the application's Micrometer registry, so
+     * Prometheus scrapes them with everything else (LLD section 17).
+     */
     @Bean
-    WorkflowServiceStubs workflowServiceStubs(@Value("${temporal.target}") String target) {
+    WorkflowServiceStubs workflowServiceStubs(@Value("${temporal.target}") String target, MeterRegistry registry) {
+        Scope metrics = new RootScopeBuilder()
+                .reporter(new MicrometerClientStatsReporter(registry))
+                .reportEvery(com.uber.m3.util.Duration.ofSeconds(10));
         return WorkflowServiceStubs.newServiceStubs(
-                WorkflowServiceStubsOptions.newBuilder().setTarget(target).build());
+                WorkflowServiceStubsOptions.newBuilder().setTarget(target).setMetricsScope(metrics).build());
+    }
+
+    /**
+     * OpenTracing interceptors over an OpenTelemetry shim: the Kafka listener's span carries into the
+     * workflow it starts, and each activity's HTTP calls hang off the activity span.
+     */
+    @Bean
+    OpenTracingOptions temporalTracing(ObjectProvider<OpenTelemetry> openTelemetry) {
+        OpenTelemetry otel = openTelemetry.getIfAvailable(OpenTelemetry::noop);
+        return OpenTracingOptions.newBuilder().setTracer(OpenTracingShim.createTracerShim(otel)).build();
     }
 
     @Bean
-    WorkflowClient workflowClient(WorkflowServiceStubs stubs, @Value("${temporal.namespace}") String namespace) {
-        return WorkflowClient.newInstance(stubs, WorkflowClientOptions.newBuilder().setNamespace(namespace).build());
+    WorkflowClient workflowClient(WorkflowServiceStubs stubs, @Value("${temporal.namespace}") String namespace,
+                                  OpenTracingOptions tracing) {
+        return WorkflowClient.newInstance(stubs, WorkflowClientOptions.newBuilder().setNamespace(namespace)
+                .setInterceptors(new OpenTracingClientInterceptor(tracing)).build());
     }
 
     @Bean
-    WorkerFactory workerFactory(WorkflowClient client) {
-        return WorkerFactory.newInstance(client);
+    WorkerFactory workerFactory(WorkflowClient client, OpenTracingOptions tracing) {
+        return WorkerFactory.newInstance(client, WorkerFactoryOptions.newBuilder()
+                .setWorkerInterceptors(new OpenTracingWorkerInterceptor(tracing)).build());
     }
 
     @Bean

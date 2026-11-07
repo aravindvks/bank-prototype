@@ -1,6 +1,7 @@
 package bank.pbp.common.events;
 
 import bank.pbp.common.correlation.Correlation;
+import bank.pbp.common.observability.FlowMetrics;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
@@ -52,6 +53,7 @@ public class EventPublisher {
         }
         if (outbox != null) {
             outbox.write(topic, event, json);
+            FlowMetrics.published(topic, event.type());
             log.info("event.outboxed topic={} type={} eventId={}", topic, event.type(), event.eventId());
             return;
         }
@@ -61,8 +63,14 @@ public class EventPublisher {
         }
         record.headers().add("type", event.type().getBytes(StandardCharsets.UTF_8));
         record.headers().add("eventId", event.eventId().getBytes(StandardCharsets.UTF_8));
+        if (event.occurredAt() != null) {
+            record.headers().add(CorrelationRecordInterceptor.OCCURRED_AT,
+                    event.occurredAt().toString().getBytes(StandardCharsets.UTF_8));
+        }
+        // traceparent is added by the KafkaTemplate observation (spring.kafka.template.observation-enabled).
         try {
             kafka.send(record).get(5, TimeUnit.SECONDS);
+            FlowMetrics.published(topic, event.type());
             log.info("event.published topic={} type={} eventId={}", topic, event.type(), event.eventId());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

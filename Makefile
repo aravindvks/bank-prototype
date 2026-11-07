@@ -10,7 +10,7 @@ endif
 
 COMPOSE = docker compose -f infra/compose/docker-compose.yml
 
-.PHONY: build test infra up down logs smoke clean
+.PHONY: build test infra up down logs smoke clean dashboards
 
 build:            ## Compile and package every service
 	./gradlew bootJar
@@ -23,6 +23,7 @@ infra:            ## PostgreSQL, Kafka (+ topics), Redis, Temporal and Temporal 
 
 up: build         ## Infrastructure plus all services and the vendor simulator
 	$(COMPOSE) --profile apps up -d --build
+	@echo "Web http://localhost:3000 · Grafana http://localhost:3001 · Temporal http://localhost:8233"
 
 down:             ## Stop everything (keeps the database volume)
 	$(COMPOSE) --profile apps down
@@ -30,8 +31,11 @@ down:             ## Stop everything (keeps the database volume)
 logs:             ## Follow service logs
 	$(COMPOSE) --profile apps logs -f --tail=100
 
-smoke:            ## End-to-end check: customers, links, a same-bank payment and a card tap
+smoke:            ## End-to-end check of every flow, including traces, metrics and logs
 	./scripts/smoke.sh
+
+dashboards:       ## Regenerate the Grafana dashboards from infra/observability/grafana/generate_dashboards.py
+	python3 infra/observability/grafana/generate_dashboards.py
 
 clean:            ## Stop everything and delete the database volume
 	$(COMPOSE) --profile apps down -v

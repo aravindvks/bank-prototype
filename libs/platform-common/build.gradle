@@ -10,6 +10,9 @@ dependencies {
     compileOnly 'org.springframework.boot:spring-boot-starter-web'
     compileOnly 'org.springframework.kafka:spring-kafka'
     compileOnly 'org.springframework.boot:spring-boot-starter-jdbc'
+    compileOnly 'io.micrometer:micrometer-core'
+    compileOnly 'io.micrometer:micrometer-tracing'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'io.micrometer:micrometer-core'
 }

@@ -66,8 +66,19 @@ jobs:
           helm lint deploy/helm/pbp 2>&1 | tee helm.log
           helm template pbp-dev deploy/helm/pbp > rendered.yaml
           helm template pbp-demo deploy/helm/pbp -f deploy/helm/pbp/values-demo.yaml > rendered-demo.yaml
+          # Observability on: alert rules and dashboards packaged as the deploy workflow does (LLD section 17).
+          mkdir -p deploy/helm/pbp/files && cp -r infra/observability deploy/helm/pbp/files/
+          helm template pbp-obs deploy/helm/pbp --set observability.enabled=true > rendered-obs.yaml
+          grep -q "kind: PrometheusRule" rendered-obs.yaml && grep -q "dashboard-pbp-payments" rendered-obs.yaml
           curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
-          ./kubeconform -strict -summary -ignore-missing-schemas rendered.yaml rendered-demo.yaml 2>&1 | tee -a helm.log
+          ./kubeconform -strict -summary -ignore-missing-schemas rendered.yaml rendered-demo.yaml rendered-obs.yaml 2>&1 | tee -a helm.log
+      - name: Check alert rules and collector config
+        run: |
+          set -o pipefail
+          docker run --rm -v "$PWD/infra/observability:/o:ro" --entrypoint promtool prom/prometheus:v2.54.1 \
+            check rules /o/prometheus/alerts.yml 2>&1 | tee -a helm.log
+          docker run --rm -v "$PWD/infra/observability:/o:ro" otel/opentelemetry-collector-contrib:0.111.0 \
+            validate --config=/o/otel-collector.yaml 2>&1 | tee -a helm.log
       - name: Report infrastructure errors
         if: failure()
         run: |
