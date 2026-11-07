@@ -97,7 +97,7 @@ async function request<T>(path: string, init: RequestInit = {}, customerId?: str
   const text = await res.text();
   const body = text ? JSON.parse(text) : null;
   if (!res.ok) {
-    throw new ApiError(body?.detail ?? `Request failed (${res.status})`, body?.code, body?.correlationId);
+    throw new ApiError(body?.detail ?? body?.message ?? `Request failed (${res.status})`, body?.code ?? body?.errorCode, body?.correlationId);
   }
   return body as T;
 }

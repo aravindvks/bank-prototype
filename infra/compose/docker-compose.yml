@@ -129,6 +129,9 @@ services:
       SIM_ESSENCE_WEBHOOK_URL: http://essence-adapter:8084/hooks/finastra
       SIM_ATFINITY_WEBHOOK_URL: http://atfinity-adapter:8086/hooks/atfinity
       SIM_THREDD_EHI_URL: http://ehi-responder:8083/ehi/v1/messages
+      # Simulated Essence accounts survive restarts; make clean deletes them with the database.
+      SIM_STATE_FILE: /data/essence-state.json
+    volumes: ["simdata:/data"]
     ports: ["8090:8090"]
 
   mapping-service:
@@ -247,3 +250,4 @@ services:
 
 volumes:
   pgdata:
+  simdata:

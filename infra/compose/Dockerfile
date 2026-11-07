@@ -4,5 +4,7 @@ ARG MODULE
 ARG JAR
 WORKDIR /app
 COPY ${MODULE}/build/libs/${JAR} /app/app.jar
+# Writable data folder for the vendor simulator's saved state (a named volume in Docker Compose).
+RUN mkdir -p /data && chown 1000 /data
 USER 1000
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "/app/app.jar"]

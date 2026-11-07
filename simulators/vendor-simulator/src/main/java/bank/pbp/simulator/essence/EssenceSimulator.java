@@ -43,11 +43,71 @@ public class EssenceSimulator {
     private final List<Map<String, Object>> postings = new java.util.concurrent.CopyOnWriteArrayList<>();
     private final WebhookSender webhooks;
     private final String webhookUrl;
+    private final SimulatorState state;
 
-    public EssenceSimulator(WebhookSender webhooks, @Value("${sim.essence.webhook-url}") String webhookUrl) {
+    public EssenceSimulator(WebhookSender webhooks, @Value("${sim.essence.webhook-url}") String webhookUrl,
+                            @Value("${sim.state-file:}") String stateFile,
+                            com.fasterxml.jackson.databind.ObjectMapper mapper) {
         this.webhooks = webhooks;
         this.webhookUrl = webhookUrl;
         reset();
+        this.state = new SimulatorState(stateFile, mapper, this::snapshot, this::restore);
+    }
+
+    /**
+     * Accounts, holds, postings and Direct Debits survive a restart (a rebuild with make up), as
+     * they would in a real Essence sandbox. Saved every two seconds and on shutdown.
+     */
+    synchronized Map<String, Object> snapshot() {
+        Map<String, Object> s = new LinkedHashMap<>();
+        s.put("accounts", accounts.values().stream().map(a -> Map.of("id", a.id, "accountNumber", a.accountNumber,
+                "name", a.name, "ledger", a.ledger.toPlainString())).toList());
+        s.put("holds", holds.values().stream().map(h -> Map.of("id", h.id(), "accountId", h.accountId(),
+                "amount", h.amount().toPlainString())).toList());
+        s.put("postings", List.copyOf(postings));
+        s.put("mandates", mandates.values().stream().map(m -> Map.of("ref", m.ref, "accountId", m.accountId,
+                "originatorName", m.originatorName, "serviceUserNumber", m.serviceUserNumber,
+                "payerReference", m.payerReference, "status", m.status)).toList());
+        s.put("collections", collections.values().stream().map(c -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("ref", c.ref);
+            m.put("mandateRef", c.mandateRef);
+            m.put("accountId", c.accountId);
+            m.put("amount", c.amount.toPlainString());
+            m.put("status", c.status);
+            m.put("postingRef", c.postingRef);
+            return m;
+        }).toList());
+        return s;
+    }
+
+    @SuppressWarnings("unchecked")
+    synchronized void restore(Map<String, Object> s) {
+        for (Map<String, Object> a : (List<Map<String, Object>>) s.getOrDefault("accounts", List.of())) {
+            accounts.put(str(a.get("id")), new Account(str(a.get("id")), str(a.get("accountNumber")), str(a.get("name")),
+                    str(a.get("ledger"))));
+        }
+        for (Map<String, Object> h : (List<Map<String, Object>>) s.getOrDefault("holds", List.of())) {
+            holds.put(str(h.get("id")), new Hold(str(h.get("id")), str(h.get("accountId")), new BigDecimal(str(h.get("amount")))));
+        }
+        postings.addAll((List<Map<String, Object>>) s.getOrDefault("postings", List.of()));
+        for (Map<String, Object> m : (List<Map<String, Object>>) s.getOrDefault("mandates", List.of())) {
+            Mandate mandate = new Mandate(str(m.get("ref")), str(m.get("accountId")), str(m.get("originatorName")),
+                    str(m.get("serviceUserNumber")), str(m.get("payerReference")));
+            mandate.status = str(m.get("status"));
+            mandates.put(mandate.ref, mandate);
+        }
+        for (Map<String, Object> c : (List<Map<String, Object>>) s.getOrDefault("collections", List.of())) {
+            Collection col = new Collection(str(c.get("ref")), str(c.get("mandateRef")), str(c.get("accountId")),
+                    new BigDecimal(str(c.get("amount"))));
+            col.status = str(c.get("status"));
+            col.postingRef = c.get("postingRef") == null ? null : str(c.get("postingRef"));
+            collections.put(col.ref, col);
+        }
+    }
+
+    private static String str(Object o) {
+        return String.valueOf(o);
     }
 
     public final synchronized void reset() {

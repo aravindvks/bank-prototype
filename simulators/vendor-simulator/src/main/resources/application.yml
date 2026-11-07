@@ -6,6 +6,8 @@ spring:
 sim:
   # Shared secret for signing webhooks; the adapters verify with the same value.
   webhook-secret: ${WEBHOOK_SECRET:local-dev-secret}
+  # JSON file for the simulated Essence state; empty keeps it in memory only.
+  state-file: ${SIM_STATE_FILE:}
   essence:
     webhook-url: ${SIM_ESSENCE_WEBHOOK_URL:http://localhost:8084/hooks/finastra}
   atfinity:
