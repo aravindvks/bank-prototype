@@ -28,7 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class MappingService {
 
     static final Set<String> SYSTEMS = Set.of("ATFINITY", "ESSENCE", "THREDD");
-    static final Set<String> ENTITY_TYPES = Set.of("KYC_CASE", "PARTY", "ACCOUNT", "CARD");
+    // CREDIT_ACCOUNT: a Thredd credit card account, the parent of its credit card.
+    static final Set<String> ENTITY_TYPES = Set.of("KYC_CASE", "PARTY", "ACCOUNT", "CARD", "CREDIT_ACCOUNT");
     private static final String PRODUCER = "mapping-service";
 
     private final MappingRepository repo;
@@ -196,23 +197,25 @@ public class MappingService {
 
     /** A card needs an ACTIVE account parent; an account needs a party parent. */
     private void checkParent(UUID customerId, String entityType, UUID parentRefId) {
-        String requiredParent = switch (entityType) {
-            case "CARD" -> "ACCOUNT";
-            case "ACCOUNT" -> "PARTY";
-            default -> null;
+        // A debit card hangs off its Essence account; a credit card off its Thredd credit account.
+        Set<String> allowed = switch (entityType) {
+            case "CARD" -> Set.of("ACCOUNT", "CREDIT_ACCOUNT");
+            case "ACCOUNT" -> Set.of("PARTY");
+            default -> Set.of();
         };
-        if (requiredParent == null) {
+        if (allowed.isEmpty()) {
             return;
         }
         ExternalRef parent = parentRefId == null ? null : repo.findRef(parentRefId).orElse(null);
+        boolean account = parent != null && !"PARTY".equals(parent.entityType());
         boolean ok = parent != null
                 && parent.customerId().equals(customerId)
-                && parent.entityType().equals(requiredParent)
-                && (!"ACCOUNT".equals(requiredParent) || "ACTIVE".equals(parent.status()));
+                && allowed.contains(parent.entityType())
+                && (!account || "ACTIVE".equals(parent.status()));
         if (!ok) {
+            String needed = "CARD".equals(entityType) ? "an ACTIVE ACCOUNT or CREDIT_ACCOUNT" : "a PARTY";
             throw new PbpException("MAP-LINK-002", 422, "Parent link missing",
-                    entityType + " needs " + ("ACCOUNT".equals(requiredParent) ? "an ACTIVE " : "a ")
-                            + requiredParent + " parent of the same customer");
+                    entityType + " needs " + needed + " parent of the same customer");
         }
     }
 
