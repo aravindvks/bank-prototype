@@ -299,7 +299,8 @@ SO=$(sched "{\"kind\":\"STANDING_ORDER\",\"frequency\":\"MONTHLY\",\"startDate\"
 [ -n "$SO" ] && pass "Monthly standing order $SO accepted, first payment today" || fail "No scheduleId for the standing order"
 # Payments go out at 06:00 UK time. Before then today's payment is still waiting, so use the demo "pay now".
 if [ "$(TZ=Europe/London date +%H)" -lt 6 ]; then
-  sleep 3; curl -sf -X POST "$BFF/v1/schedules/$SO/run-now" -H "$PRIYA_H" >/dev/null
+  for _ in $(seq 1 15); do curl -sf "$BFF/v1/schedules" -H "$PRIYA_H" | grep -q "\"scheduleId\":\"$SO\"" && break; sleep 1; done
+  curl -sf -X POST "$BFF/v1/schedules/$SO/run-now" -H "$PRIYA_H" >/dev/null
   echo "  (before 06:00 UK: today's payment would wait until 06:00, so the demo 'pay now' sends it)"
 fi
 for _ in $(seq 1 25); do e=$(entry "$(curl -sf "$BFF/v1/schedules" -H "$PRIYA_H")" scheduleId "$SO" createdAt)
