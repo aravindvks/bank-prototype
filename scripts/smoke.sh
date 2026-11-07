@@ -11,6 +11,21 @@ WEB=${WEB:-http://localhost:3000}
 CONNECT=${CONNECT:-http://localhost:8088}
 KC=${KC:-http://localhost:8180}
 
+# Right after make up the Java services are still starting: wait until each answers its health check.
+printf 'Waiting for services'
+for port in 8090 8082 8084 8085 8086 8083 8080 8081 8087; do
+  for i in $(seq 1 120); do
+    curl -sf "http://localhost:$port/actuator/health" >/dev/null 2>&1 && break
+    [ "$i" = 120 ] && { echo; echo "Service on port $port did not become healthy within 4 minutes (docker compose ps)"; exit 1; }
+    printf '.'; sleep 2
+  done
+done
+# Keycloak (login) also starts slowly; wait for its realm if it is running at all.
+if curl -s -o /dev/null "$KC/" 2>/dev/null || docker ps --format '{{.Names}}' 2>/dev/null | grep -q keycloak; then
+  for i in $(seq 1 90); do curl -sf "$KC/realms/pbp" >/dev/null 2>&1 && break; printf '.'; sleep 2; done
+fi
+echo " ready"
+
 # Login: with Keycloak up, every call carries a bearer token (as the web app does);
 # otherwise the BFF runs with development headers.
 token() { curl -sf -X POST "$KC/realms/pbp/protocol/openid-connect/token" -d grant_type=password \
@@ -24,6 +39,7 @@ if curl -sf "$KC/realms/pbp" >/dev/null 2>&1; then
 else
   AUTH=0; STAFF_H="X-Staff-User: smoke-reviewer"; ASHA_H0="X-Smoke: 1"
 fi
+
 
 pass() { printf '  \033[32mPASS\033[0m %s\n' "$1"; }
 fail() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; exit 1; }
