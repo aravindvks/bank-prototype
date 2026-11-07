@@ -140,6 +140,8 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --enable-feature=exemplar-storage
+      # POST /-/reload picks up a changed prometheus.yml or alerts.yml (make up and the smoke test do this).
+      - --web.enable-lifecycle
       - --storage.tsdb.retention.time=7d
     volumes:
       - ../observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro

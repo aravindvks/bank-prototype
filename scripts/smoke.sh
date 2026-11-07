@@ -595,6 +595,8 @@ fi
 
 if curl -sf "$PROM/-/ready" >/dev/null 2>&1; then
   echo "31. Metrics, alerts and logs: every service scraped, flow metrics recorded, alert rules loaded, logs searchable"
+  # Pick up a changed scrape config (a new service) without restarting Prometheus.
+  curl -s -X POST "$PROM/-/reload" >/dev/null 2>&1 || true
   up=""; done_n=""; ehi_n=""
   for _ in $(seq 1 30); do
     up=$(promq 'count(up{job="pbp"} == 1)'); done_n=$(promq 'sum(pbp_payment_transitions_total{status="COMPLETED"})')
@@ -602,7 +604,7 @@ if curl -sf "$PROM/-/ready" >/dev/null 2>&1; then
     [ "$up" = 10 ] && [ -n "$done_n" ] && [ -n "$ehi_n" ] && break
     sleep 3
   done
-  [ "$up" = 10 ] && pass "Prometheus scrapes all 10 services" || fail "Prometheus sees ${up:-0} of 10 services up (http://localhost:9090/targets)"
+  [ "$up" = 10 ] && pass "Prometheus scrapes all 10 services" || fail "Prometheus sees ${up:-0} of 10 services up; scraped: $(curl -s -G "$PROM/api/v1/query" --data-urlencode 'query=up{job="pbp"}' | grep -o '"service":"[^"]*"[^}]*}[^]]*"[01]"' | sed 's/"service":"\([^"]*\)".*"\([01]\)"/\1=\2/' | tr '\n' ' '). If credit-adapter is missing, Prometheus has an old config: docker compose -f infra/compose/docker-compose.yml restart prometheus"
   [ -n "$done_n" ] && pass "Payment flow metrics: $done_n status changes to COMPLETED counted" \
     || fail "pbp_payment_transitions_total has no COMPLETED series (FlowMetricsCollector in the orchestrator)"
   [ -n "$ehi_n" ] && pass "Card authorisation timer: $ehi_n decisions recorded" || fail "pbp_ehi_decision_seconds has no samples"

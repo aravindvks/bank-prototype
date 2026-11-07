@@ -23,6 +23,8 @@ infra:            ## PostgreSQL, Kafka (+ topics), Redis, Temporal and Temporal 
 
 up: build         ## Infrastructure plus all services and the vendor simulator
 	$(COMPOSE) --profile apps up -d --build
+	@# A bind-mounted prometheus.yml change (e.g. a new service) is not seen until Prometheus reloads.
+	@curl -s -X POST http://localhost:9090/-/reload >/dev/null 2>&1 || true
 	@echo "Web http://localhost:3000 · Grafana http://localhost:3001 · Temporal http://localhost:8233"
 
 down:             ## Stop everything (keeps the database volume)
