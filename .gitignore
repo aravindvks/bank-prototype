@@ -8,3 +8,11 @@ out/
 *.log
 !gradle/wrapper/gradle-wrapper.jar
 deploy/helm/pbp/files/
+
+# Terraform (every cloud folder)
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+backend.hcl
+tf.log
