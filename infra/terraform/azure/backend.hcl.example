@@ -1,0 +1,5 @@
+resource_group_name  = "pbp-terraform"
+storage_account_name = "pbptfstateXXXXXX"
+container_name       = "tfstate"
+key                  = "pbp/dev/terraform.tfstate"
+use_azuread_auth     = true

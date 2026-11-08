@@ -1,0 +1,47 @@
+{{- if .Values.kafkaTopics.enabled }}
+# Creates the Kafka topics (LLD section 9) where the cloud has no Terraform resource for them (MSK).
+# OCI Streaming and Event Hubs topics come from Terraform instead. Idempotent: --if-not-exists.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-topics
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: topics
+          image: {{ .Values.kafkaTopics.image }}
+          env:
+            - name: BOOTSTRAP
+              value: {{ .Values.config.KAFKA_BOOTSTRAP | quote }}
+            - name: PROTOCOL
+              value: {{ .Values.config.SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL | default "SASL_SSL" | quote }}
+            - name: MECHANISM
+              value: {{ .Values.config.SPRING_KAFKA_PROPERTIES_SASL_MECHANISM | default "PLAIN" | quote }}
+            - name: JAAS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: SPRING_KAFKA_PROPERTIES_SASL_JAAS_CONFIG
+          command:
+            - bash
+            - -ec
+            - |
+              printf 'security.protocol=%s\nsasl.mechanism=%s\nsasl.jaas.config=%s\n' "$PROTOCOL" "$MECHANISM" "$JAAS" > /tmp/client.properties
+              KT="/opt/kafka/bin/kafka-topics.sh --bootstrap-server $BOOTSTRAP --command-config /tmp/client.properties"
+              create() { $KT --create --if-not-exists --topic "$1" --partitions "$2" \
+                --replication-factor {{ .Values.kafkaTopics.replicationFactor }} --config retention.ms="$3" --config cleanup.policy="$4"; }
+              {{- range $name, $t := .Values.kafkaTopics.topics }}
+              create {{ $name }} {{ $t.partitions }} {{ $t.retentionMs | int64 }} {{ $t.cleanup | default "delete" }}
+              create {{ $name }}.DLT 3 2592000000 delete
+              {{- end }}
+              $KT --list
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 512Mi }
+{{- end }}

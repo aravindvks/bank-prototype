@@ -1,0 +1,30 @@
+# Azure cell (infra/terraform/azure). Use with: helm upgrade --install pbp-dev . -f values-azure.yaml
+# Fill the addresses from `terraform output`. Cluster add-ons: External Secrets Operator (ClusterSecretStore
+# "azure-key-vault" with workload identity, client ID from Terraform), Temporal, and the observability
+# stack, exactly as on OCI. The Application Gateway (Terraform) is the public entry for web and EHI.
+cloud: azure
+
+image:
+  registry: pbpdevxxxxxx.azurecr.io/pbp       # terraform output registry
+  pullSecret: ""                              # nodes pull from ACR with their managed identity (AcrPull)
+
+config:
+  DB_HOST: "pbp-dev-pg-xxxxxx.postgres.database.azure.com"   # terraform output postgres_endpoint
+  KAFKA_BOOTSTRAP: "pbp-dev-kafka-xxxxxx.servicebus.windows.net:9093"  # terraform output kafka_bootstrap
+  SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL: SASL_SSL
+  SPRING_KAFKA_PROPERTIES_SASL_MECHANISM: PLAIN
+  REDIS_HOST: "pbp-dev-cache-xxxxxx.redis.cache.windows.net"         # terraform output cache_endpoint
+  SPRING_DATA_REDIS_PORT: "6380"
+  SPRING_DATA_REDIS_SSL_ENABLED: "true"
+  # Login: Keycloak (in-cluster, brokering to Entra ID) keeps the web app and the BFF unchanged. Using
+  # Entra ID tokens directly: its JWKS here, and PBP_AUTH_ROLES_CLAIM "roles" (app roles staff, compliance).
+  KEYCLOAK_JWKS: "https://login.example.co.uk/realms/pbp/protocol/openid-connect/certs"
+  PBP_AUTH_ROLES_CLAIM: ""
+
+externalSecrets:
+  enabled: true
+  secretStore: azure-key-vault
+
+azure:
+  webPrivateIp: "10.40.15.10"   # terraform var web_private_ip
+  ehiPrivateIp: "10.40.15.11"   # terraform var ehi_private_ip

@@ -3,6 +3,7 @@ package bank.pbp.bff.security;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -29,7 +30,9 @@ public class SecurityConfig {
 
     @Bean
     @ConditionalOnProperty(name = "pbp.auth.enabled", havingValue = "true")
-    SecurityFilterChain secured(HttpSecurity http) throws Exception {
+    SecurityFilterChain secured(HttpSecurity http,
+                                @Value("${pbp.auth.roles-claim:}") String rolesClaim,
+                                @Value("${pbp.auth.username-claim:preferred_username}") String usernameClaim) throws Exception {
         DefaultBearerTokenResolver tokens = new DefaultBearerTokenResolver();
         // Browsers' EventSource cannot send headers, so the live-push stream may carry the token in the URL.
         tokens.setAllowUriQueryParameter(true);
@@ -46,7 +49,7 @@ public class SecurityConfig {
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(o -> o
                         .bearerTokenResolver(tokens)
-                        .jwt(j -> j.jwtAuthenticationConverter(new RealmRoles())));
+                        .jwt(j -> j.jwtAuthenticationConverter(new RealmRoles(rolesClaim, usernameClaim))));
         return http.build();
     }
 
@@ -59,13 +62,30 @@ public class SecurityConfig {
 
     /**
      * Roles → ROLE_ authorities. Keycloak puts realm roles in realm_access.roles; OCI Identity Domains
-     * puts group names in "groups" (create groups named staff and compliance there).
+     * puts group names in "groups" (create groups named staff and compliance there). Another identity
+     * provider names the claim with {@code pbp.auth.roles-claim} (PBP_AUTH_ROLES_CLAIM): "roles" for
+     * Microsoft Entra ID app roles, "cognito:groups" for Amazon Cognito. Its username claim, if not
+     * preferred_username, goes in {@code pbp.auth.username-claim} ("cognito:username" for Cognito).
      */
     static final class RealmRoles implements Converter<Jwt, AbstractAuthenticationToken> {
+        private final String rolesClaim;
+        private final String usernameClaim;
+
+        RealmRoles(String rolesClaim, String usernameClaim) {
+            this.rolesClaim = rolesClaim == null ? "" : rolesClaim.trim();
+            this.usernameClaim = usernameClaim == null || usernameClaim.isBlank() ? "preferred_username" : usernameClaim.trim();
+        }
+
         @Override
         public AbstractAuthenticationToken convert(Jwt jwt) {
+            Collection<?> roles = List.of();
+            if (!rolesClaim.isEmpty() && jwt.getClaims().get(rolesClaim) instanceof Collection<?> configured) {
+                roles = configured;
+            }
             Object realm = jwt.getClaims().get("realm_access");
-            Collection<?> roles = realm instanceof Map<?, ?> m && m.get("roles") instanceof Collection<?> c ? c : List.of();
+            if (roles.isEmpty() && realm instanceof Map<?, ?> m && m.get("roles") instanceof Collection<?> c) {
+                roles = c;
+            }
             Object groups = jwt.getClaims().get("groups");
             if (roles.isEmpty() && groups instanceof Collection<?> g) {
                 roles = g;
@@ -73,7 +93,7 @@ public class SecurityConfig {
             List<GrantedAuthority> authorities = roles.stream()
                     .map(r -> (GrantedAuthority) new SimpleGrantedAuthority("ROLE_" + r))
                     .toList();
-            String user = jwt.getClaimAsString("preferred_username");
+            String user = jwt.getClaimAsString(usernameClaim);
             if (user == null) {
                 user = jwt.getSubject();
             }

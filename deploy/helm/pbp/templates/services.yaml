@@ -85,15 +85,12 @@ metadata:
   name: {{ $name }}
   labels:
     app.kubernetes.io/name: {{ $name }}
-  {{- if and (eq $name "web") $.Values.webInternalLoadBalancer }}
+  {{- if and (eq $name "web") (include "pbp.webLoadBalancer" $) }}
   annotations:
-    service.beta.kubernetes.io/oci-load-balancer-internal: "true"
-    service.beta.kubernetes.io/oci-load-balancer-shape: flexible
-    service.beta.kubernetes.io/oci-load-balancer-shape-flex-min: "10"
-    service.beta.kubernetes.io/oci-load-balancer-shape-flex-max: "100"
+    {{- include "pbp.webLbAnnotations" $ | trim | nindent 4 }}
   {{- end }}
 spec:
-  type: {{ if and (eq $name "web") $.Values.webInternalLoadBalancer }}LoadBalancer{{ else }}ClusterIP{{ end }}
+  type: {{ if and (eq $name "web") (include "pbp.webLoadBalancer" $) }}LoadBalancer{{ else }}ClusterIP{{ end }}
   selector:
     app.kubernetes.io/name: {{ $name }}
   ports:

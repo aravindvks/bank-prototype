@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars (git-ignored). Secrets are better passed as TF_VAR_* environment variables.
+subscription_id = "00000000-0000-0000-0000-000000000000"
+location        = "uksouth"
+env             = "dev"
+
+# postgres_password = "..."   # TF_VAR_postgres_password
+# webhook_secret    = "..."   # TF_VAR_webhook_secret
+
+admin_cidrs             = []  # your address, so Terraform can write Key Vault secrets
+thredd_ehi_source_cidrs = []  # from Thredd
+
+web_hostname = "bank-dev.example.co.uk"
+ehi_hostname = "ehi-dev.example.co.uk"
+# Second apply, after uploading the certificates to the Key Vault:
+# web_certificate_secret_id = "https://pbp-dev-kv-xxxxxx.vault.azure.net/secrets/web-tls"
+# ehi_certificate_secret_id = "https://pbp-dev-kv-xxxxxx.vault.azure.net/secrets/ehi-tls"

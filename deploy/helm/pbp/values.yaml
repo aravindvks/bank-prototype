@@ -1,4 +1,9 @@
-# Sutherland Banking Platform on OKE. One release per environment: helm upgrade --install pbp-dev . -f values-dev.yaml
+# Sutherland Banking Platform. One chart for every cloud; these defaults are the OCI (OKE) cell.
+# AWS: add -f values-aws.yaml; Azure: add -f values-azure.yaml (addresses from that cloud's Terraform outputs).
+# One release per environment: helm upgrade --install pbp-dev . -f values-<cloud>.yaml
+
+# oci | aws | azure: picks the load balancer annotations and the public entry (templates/_cloud.tpl).
+cloud: oci
 
 image:
   registry: uk-london-1.ocir.io/NAMESPACE/pbp   # from terraform output "registry"
@@ -78,6 +83,35 @@ ehiLoadBalancer:
 
 # API Gateway forwards to the web app (which proxies /v1 to the BFF) on a private load balancer.
 webInternalLoadBalancer: true
+
+# AWS only (values-aws.yaml): ALB Ingress for the web app and the NLB for Thredd's EHI calls.
+aws:
+  webHost: ""
+  webCertificateArn: ""      # ACM certificate for webHost
+  ehiCertificateArn: ""      # ACM certificate for the EHI host name registered with Thredd
+  wafAclArn: ""              # terraform output waf_acl_arn
+
+# Azure only (values-azure.yaml): fixed private IPs the Application Gateway forwards to (terraform vars).
+azure:
+  webPrivateIp: ""
+  ehiPrivateIp: ""
+
+# Topic creation Job, for Kafka services without Terraform topics (MSK). Off on OCI and Azure, where
+# Terraform creates the streams / event hubs.
+kafkaTopics:
+  enabled: false
+  image: apache/kafka:3.8.0
+  replicationFactor: 3
+  topics:
+    payment-commands:    { partitions: 12, retentionMs: 604800000 }
+    onboarding-commands: { partitions: 6,  retentionMs: 604800000 }
+    card-commands:       { partitions: 6,  retentionMs: 604800000 }
+    customer-commands:   { partitions: 6,  retentionMs: 604800000 }
+    kyc-events:          { partitions: 6,  retentionMs: 2592000000 }
+    card-events:         { partitions: 12, retentionMs: 2592000000 }
+    payment-events:      { partitions: 12, retentionMs: 2592000000 }
+    onboarding-events:   { partitions: 6,  retentionMs: 2592000000 }
+    mapping-events:      { partitions: 6,  retentionMs: -1, cleanup: compact }
 
 # Kafka Connect with Debezium relays the outbox tables (LLD section 9).
 connect:

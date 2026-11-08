@@ -32,6 +32,10 @@ pbp:
     # true: OAuth2 bearer tokens from Identity Domains (Keycloak locally) are required.
     # false: development headers X-Customer-Id and X-Staff-User (IDE runs only).
     enabled: ${AUTH_ENABLED:false}
+    # Claim holding the staff/compliance roles when the identity provider is not Keycloak or Identity Domains:
+    # "roles" (Entra ID app roles) or "cognito:groups" (Cognito). Empty: realm_access.roles, then groups.
+    roles-claim: ${PBP_AUTH_ROLES_CLAIM:}
+    username-claim: ${PBP_AUTH_USERNAME_CLAIM:preferred_username}
   events:
     # outbox: Debezium relays events from the outbox table (Docker Compose, OCI); direct: straight to Kafka.
     mode: ${EVENTS_MODE:direct}

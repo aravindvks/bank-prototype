@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars (git-ignored). Secrets are better passed as TF_VAR_* environment variables.
+region   = "eu-west-2"
+env      = "dev"
+vpc_cidr = "10.30.0.0/16"
+
+# postgres_password = "..."   # TF_VAR_postgres_password
+# kafka_password    = "..."   # TF_VAR_kafka_password
+# webhook_secret    = "..."   # TF_VAR_webhook_secret
+
+thredd_ehi_source_cidrs = []  # from Thredd; also set ehiLoadBalancer.sourceRanges in values-aws.yaml

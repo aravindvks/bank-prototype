@@ -1,0 +1,37 @@
+# AWS cell (infra/terraform/aws). Use with: helm upgrade --install pbp-dev . -f values-aws.yaml
+# Fill the addresses from `terraform output`. Cluster add-ons: AWS Load Balancer Controller, External
+# Secrets Operator (ClusterSecretStore "aws-secrets-manager", Pod Identity role from Terraform), Temporal,
+# and the observability stack, exactly as on OCI.
+cloud: aws
+
+image:
+  registry: ACCOUNT_ID.dkr.ecr.eu-west-2.amazonaws.com/pbp   # terraform output registry
+  pullSecret: ""                                             # nodes pull from ECR with their IAM role
+
+config:
+  DB_HOST: "pbp-dev-pg.xxxxxxxx.eu-west-2.rds.amazonaws.com"   # terraform output postgres_endpoint
+  KAFKA_BOOTSTRAP: "b-1.pbpdevkafka.xxxxxx.c2.kafka.eu-west-2.amazonaws.com:9096"  # terraform output kafka_bootstrap
+  SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL: SASL_SSL
+  SPRING_KAFKA_PROPERTIES_SASL_MECHANISM: SCRAM-SHA-512
+  REDIS_HOST: "master.pbp-dev-cache.xxxxxx.euw2.cache.amazonaws.com"  # terraform output cache_endpoint
+  SPRING_DATA_REDIS_SSL_ENABLED: "true"
+  # Login: Keycloak (in-cluster, brokering to Cognito or the bank's directory) keeps the web app and the
+  # BFF unchanged. Using Cognito tokens directly: its JWKS here, and PBP_AUTH_ROLES_CLAIM "cognito:groups".
+  KEYCLOAK_JWKS: "https://login.example.co.uk/realms/pbp/protocol/openid-connect/certs"
+  PBP_AUTH_ROLES_CLAIM: ""
+
+externalSecrets:
+  enabled: true
+  secretStore: aws-secrets-manager
+
+kafkaTopics:
+  enabled: true          # MSK has no Terraform topics
+
+ehiLoadBalancer:
+  sourceRanges: []       # Thredd egress CIDRs (terraform var thredd_ehi_source_cidrs)
+
+aws:
+  webHost: bank-dev.example.co.uk
+  webCertificateArn: "arn:aws:acm:eu-west-2:ACCOUNT_ID:certificate/web"
+  ehiCertificateArn: "arn:aws:acm:eu-west-2:ACCOUNT_ID:certificate/ehi"
+  wafAclArn: "arn:aws:wafv2:eu-west-2:ACCOUNT_ID:regional/webacl/pbp-dev-web/ID"   # terraform output waf_acl_arn

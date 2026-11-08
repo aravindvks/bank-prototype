@@ -1,0 +1,5 @@
+bucket         = "pbp-terraform-state-ACCOUNT_ID"
+key            = "pbp/dev/terraform.tfstate"
+region         = "eu-west-2"
+dynamodb_table = "pbp-terraform-locks"
+encrypt        = true

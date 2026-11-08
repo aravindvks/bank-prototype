@@ -1,5 +1,5 @@
 {{- if .Values.connect.enabled }}
-# Kafka Connect with Debezium: relays every service's outbox table to OCI Streaming (LLD section 9).
+# Kafka Connect with Debezium: relays every service's outbox table to Kafka: OCI Streaming, MSK or Event Hubs (LLD section 9).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -34,18 +34,18 @@ spec:
             - name: STATUS_STORAGE_TOPIC
               value: pbp-connect-statuses
             - name: CONNECT_SECURITY_PROTOCOL
-              value: SASL_SSL
+              value: {{ .Values.config.SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL | default "SASL_SSL" | quote }}
             - name: CONNECT_SASL_MECHANISM
-              value: PLAIN
+              value: {{ .Values.config.SPRING_KAFKA_PROPERTIES_SASL_MECHANISM | default "PLAIN" | quote }}
             - name: CONNECT_SASL_JAAS_CONFIG
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secretName }}
                   key: SPRING_KAFKA_PROPERTIES_SASL_JAAS_CONFIG
             - name: CONNECT_PRODUCER_SECURITY_PROTOCOL
-              value: SASL_SSL
+              value: {{ .Values.config.SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL | default "SASL_SSL" | quote }}
             - name: CONNECT_PRODUCER_SASL_MECHANISM
-              value: PLAIN
+              value: {{ .Values.config.SPRING_KAFKA_PROPERTIES_SASL_MECHANISM | default "PLAIN" | quote }}
             - name: CONNECT_PRODUCER_SASL_JAAS_CONFIG
               valueFrom:
                 secretKeyRef:

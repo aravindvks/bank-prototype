@@ -1,6 +1,7 @@
 {{- if .Values.ehiLoadBalancer.enabled }}
 # Dedicated public listener for Thredd's EHI calls (HLD: separate path, not API Gateway).
-# TLS terminates at the OCI load balancer; only Thredd's ranges may connect; WAF is attached by Terraform.
+# OCI and AWS: TLS terminates at this load balancer and only Thredd's ranges may connect (WAF attached by
+# Terraform on OCI). Azure: internal, behind the Application Gateway's TLS listener and WAF (infra/terraform/azure).
 apiVersion: v1
 kind: Service
 metadata:
@@ -8,23 +9,20 @@ metadata:
   labels:
     app.kubernetes.io/name: ehi-responder
   annotations:
-    service.beta.kubernetes.io/oci-load-balancer-shape: flexible
-    service.beta.kubernetes.io/oci-load-balancer-shape-flex-min: {{ .Values.ehiLoadBalancer.shapeMinMbps | quote }}
-    service.beta.kubernetes.io/oci-load-balancer-shape-flex-max: {{ .Values.ehiLoadBalancer.shapeMaxMbps | quote }}
-    service.beta.kubernetes.io/oci-load-balancer-ssl-ports: "443"
-    service.beta.kubernetes.io/oci-load-balancer-tls-secret: {{ .Values.ehiLoadBalancer.tlsSecret | quote }}
-    service.beta.kubernetes.io/oci-load-balancer-backend-protocol: HTTP
+    {{- include "pbp.ehiLbAnnotations" . | trim | nindent 4 }}
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Local
+  {{- if ne .Values.cloud "azure" }}
   {{- with .Values.ehiLoadBalancer.sourceRanges }}
   loadBalancerSourceRanges:
     {{- toYaml . | nindent 4 }}
+  {{- end }}
   {{- end }}
   selector:
     app.kubernetes.io/name: ehi-responder
   ports:
     - name: https
-      port: 443
+      port: {{ if eq .Values.cloud "azure" }}80{{ else }}443{{ end }}
       targetPort: http
 {{- end }}
