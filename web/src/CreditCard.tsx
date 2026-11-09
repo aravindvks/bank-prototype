@@ -123,13 +123,16 @@ function Account({ me, customerId, account, notify, after }: {
           <div className="row between small"><span>{me.account?.name}</span><span className="mono">{account.cardToken}</span></div>
         </div>
         <dl className="kv">
-          <div><dt>Balance</dt><dd className="balance num">{gbp(account.balance)}</dd></div>
+          <div><dt>Balance</dt><dd className="balance num">{account.balance?.startsWith('-')
+            ? <>{gbp(account.balance.slice(1))} <span className="muted small">in credit</span></>
+            : gbp(account.balance)}</dd></div>
           <div><dt>Available credit</dt><dd className="num">{gbp(account.availableCredit)}</dd></div>
           <div><dt>Credit limit</dt><dd className="num">{gbp(account.creditLimit)}</dd></div>
           <div><dt>Purchase rate</dt><dd>{account.purchaseApr}%</dd></div>
           {account.pending && account.pending !== '0.00' && <div><dt>Pending</dt><dd className="num">{gbp(account.pending)}</dd></div>}
         </dl>
         {account.liveError && <p className="alert bad">{account.liveError}</p>}
+        {account.balance?.startsWith('-') && <p className="alert">You have paid more than you owe. The extra is credited against future spending.</p>}
         {account.status === 'ARREARS' && <p className="alert bad">A minimum payment was missed and a £12 fee charged. Paying the minimum on your next statement brings the account back up to date.</p>}
         <form className="row" onSubmit={(e) => {
           e.preventDefault();

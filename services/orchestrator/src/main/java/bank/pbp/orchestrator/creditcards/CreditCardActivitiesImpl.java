@@ -339,8 +339,9 @@ public class CreditCardActivitiesImpl implements CreditCardActivities {
             JsonNode result = call("essence.transfers", () -> essence.post().uri("/v1/transfers").body(body)
                     .retrieve().body(JsonNode.class));
             String ref = result.path("postingRef").asText(null);
-            jdbc.sql("UPDATE credit_repayment SET essence_ref = :ref, updated_at = now() WHERE repayment_id = :id")
-                    .param("ref", ref).param("id", UUID.fromString(r.repaymentId())).update();
+            // Essence has moved the money: from here on nothing may fail this activity, or the workflow would
+            // treat a completed debit as failed. The reference is for traceability only.
+            recordRef("essence_ref", ref, r.repaymentId());
             return ref;
         });
     }
@@ -354,10 +355,24 @@ public class CreditCardActivitiesImpl implements CreditCardActivities {
                     .body(Map.of("amount", money(r.amount()), "reference", "Repayment " + r.repaymentId()))
                     .retrieve().body(JsonNode.class));
             String ref = result.path("repaymentRef").asText(null);
-            jdbc.sql("UPDATE credit_repayment SET thredd_ref = :ref, updated_at = now() WHERE repayment_id = :id")
-                    .param("ref", ref).param("id", UUID.fromString(r.repaymentId())).update();
+            // Thredd has credited the card. A failure after this point (e.g. the database briefly refusing
+            // connections) used to fail the activity, exhaust its retries and refund money Thredd had already
+            // credited: the card went into credit with nothing taken. Never fail after the vendor said yes.
+            recordRef("thredd_ref", ref, r.repaymentId());
             return ref;
         });
+    }
+
+    /** Best effort: stores a vendor reference on the repayment row; logs instead of failing. */
+    private void recordRef(String column, String ref, String repaymentId) {
+        String sql = "thredd_ref".equals(column)
+                ? "UPDATE credit_repayment SET thredd_ref = :ref, updated_at = now() WHERE repayment_id = :id"
+                : "UPDATE credit_repayment SET essence_ref = :ref, updated_at = now() WHERE repayment_id = :id";
+        try {
+            jdbc.sql(sql).param("ref", ref).param("id", UUID.fromString(repaymentId)).update();
+        } catch (RuntimeException e) {
+            log.warn("creditcard.repayment {}={} not recorded for {}: {}", column, ref, repaymentId, e.toString());
+        }
     }
 
     @Override
