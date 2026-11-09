@@ -123,13 +123,14 @@ replay=$(curl -sf -X POST "$BFF/v1/payments" -H 'Content-Type: application/json'
   || fail "Idempotency replay returned $replay"
 
 expected=$(awk "BEGIN { printf \"%.2f\", $before + 25 }")
-for _ in $(seq 1 20); do
+# 45 s: the first payment after a laptop wakes up can be slow (cold JVMs, Temporal and Kafka reconnecting).
+for _ in $(seq 1 45); do
   after=$(curl -sf "$SIM/essence/v1/accounts/ACC-5510/balance" | field available)
   [ "$after" = "$expected" ] && break
   sleep 1
 done
 [ "$after" = "$expected" ] && pass "Ravi's Essence balance moved $before → $after" \
-  || fail "Ravi's balance is $after, expected $expected. Check the workflow in Temporal UI (http://localhost:8233)"
+  || fail "Ravi's balance is $after, expected $expected. Payment status: $(pstatus "$PAYMENT" || echo unknown); outbox connector: $(curl -s "$CONNECT/connectors/pbp-outbox/status" | grep -o '"state":"[A-Z]*"' | tr '\n' ' ' || echo unreachable). INITIATED with a FAILED connector = events not flowing (restart it, see README); a later status = check the workflow in Temporal UI (http://localhost:8233)"
 
 echo "4. Onboarding: Asha signs up (BFF → Temporal → mapping → Atfinity → Essence → Thredd)"
 onb=$(curl -sf -X POST "$BFF/v1/onboarding" -H 'Content-Type: application/json' -H "$ASHA_H0" -H "Idempotency-Key: $(uuid)" \
