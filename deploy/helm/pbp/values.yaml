@@ -17,6 +17,7 @@ env: dev
 config:
   DB_HOST: "10.20.20.10"                        # terraform output postgres_endpoint
   DB_NAME: pbp
+  SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "10"   # per pod; size the managed database's connection limit to pods x 10
   KAFKA_BOOTSTRAP: "cell-1.streaming.uk-london-1.oci.oraclecloud.com:9092"  # terraform output kafka_bootstrap
   SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL: SASL_SSL
   SPRING_KAFKA_PROPERTIES_SASL_MECHANISM: PLAIN

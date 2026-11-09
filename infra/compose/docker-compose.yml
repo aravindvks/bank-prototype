@@ -6,8 +6,9 @@ name: pbp
 services:
   postgres:
     image: postgres:16-alpine
-    # Logical decoding for Debezium (outbox relay).
-    command: ["postgres", "-c", "wal_level=logical"]
+    # Logical decoding for Debezium (outbox relay). max_connections: 5 services x 10 pooled connections,
+    # Temporal (4 roles x 2 stores, capped below), Debezium and headroom; the default 100 ran out.
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_connections=300"]
     environment:
       POSTGRES_DB: pbp
       POSTGRES_USER: pbp
@@ -104,6 +105,9 @@ services:
       postgres: { condition: service_healthy }
     environment:
       DB: postgres12
+      # Cap Temporal's pools (default 20 per store per role) so it cannot exhaust PostgreSQL.
+      SQL_MAX_CONNS: "10"
+      SQL_MAX_IDLE_CONNS: "5"
       DB_PORT: 5432
       POSTGRES_USER: pbp
       POSTGRES_PWD: pbp
@@ -208,6 +212,7 @@ services:
       args: { MODULE: services/mapping-service, JAR: mapping-service.jar }
     environment: &app-env
       DB_HOST: postgres
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "10"
       KAFKA_BOOTSTRAP: kafka:29092
       TEMPORAL_TARGET: temporal:7233
       ESSENCE_BASE_URL: http://vendor-simulator:8090/essence/v1
